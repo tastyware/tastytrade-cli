@@ -1,7 +1,7 @@
-
 from cement import Controller, ex
 from cement.utils.version import get_version_banner
 from ..core.version import get_version
+
 
 VERSION_BANNER = """
 An easy-to-use command line interface for Tastyworks! %s
@@ -26,7 +26,6 @@ class Base(Controller):
               { 'action'  : 'version',
                 'version' : VERSION_BANNER } ),
         ]
-
 
     def _default(self):
         """Default action if no sub-command is passed."""
