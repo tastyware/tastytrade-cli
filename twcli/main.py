@@ -1,8 +1,8 @@
-
 from cement import App, TestApp, init_defaults
 from cement.core.exc import CaughtSignal
 from .core.exc import TastyworksCLIError
 from .controllers.base import Base
+from .controllers.options import Option
 
 # configuration defaults
 CONFIG = init_defaults('twcli')
@@ -42,7 +42,8 @@ class TastyworksCLI(App):
 
         # register handlers
         handlers = [
-            Base
+            Base,
+            Option
         ]
 
 
@@ -50,7 +51,7 @@ class TastyworksCLITest(TestApp,TastyworksCLI):
     """A sub-class of TastyworksCLI that is better suited for testing."""
 
     class Meta:
-        label = 'twcli'
+        label = 'tw'
 
 
 def main():
