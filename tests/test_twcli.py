@@ -1,6 +1,5 @@
-
-from pytest import raises
 from twcli.main import TastyworksCLITest
+
 
 def test_twcli():
     # test twcli without any subcommands or arguments
@@ -22,15 +21,14 @@ def test_command1():
     argv = ['command1']
     with TastyworksCLITest(argv=argv) as app:
         app.run()
-        data,output = app.last_rendered
+        data, output = app.last_rendered
         assert data['foo'] == 'bar'
         assert output.find('Foo => bar')
-
 
     # test command1 with arguments
     argv = ['command1', '--foo', 'not-bar']
     with TastyworksCLITest(argv=argv) as app:
         app.run()
-        data,output = app.last_rendered
+        data, output = app.last_rendered
         assert data['foo'] == 'not-bar'
         assert output.find('Foo => not-bar')

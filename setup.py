@@ -1,5 +1,5 @@
+from setuptools import find_packages, setup
 
-from setuptools import setup, find_packages
 from twcli.core.version import get_version
 
 VERSION = get_version()
@@ -15,7 +15,7 @@ setup(
     long_description=LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
     author='Graeme Holliday',
-    author_email='gholliday2@hotmail.com',
+    author_email='graeme.holliday@pm.me',
     url='https://github.com/Graeme22/tastyworks-cli/',
     license='MIT',
     packages=find_packages(exclude=['ez_setup', 'tests*']),

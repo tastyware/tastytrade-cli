@@ -1,31 +1,14 @@
-.PHONY: clean virtualenv test docker dist dist-upload
+.PHONY: clean venv test
 
 clean:
 	find . -name '*.py[co]' -delete
 
-virtualenv:
-	virtualenv --prompt '|> twcli <| ' env
+venv:
+	python -m venv --prompt 'twcli' env
+	env/bin/pip install -r requirements.txt
 	env/bin/pip install -r requirements-dev.txt
-	env/bin/python setup.py develop
-	@echo
-	@echo "VirtualENV Setup Complete. Now run: source env/bin/activate"
-	@echo
 
 test:
-	python -m pytest \
-		-v \
-		--cov=twcli \
-		--cov-report=term \
-		--cov-report=html:coverage-report \
-		tests/
-
-docker: clean
-	docker build -t twcli:latest .
-
-dist: clean
-	rm -rf dist/*
-	python setup.py sdist
-	python setup.py bdist_wheel
-
-dist-upload:
-	twine upload dist/*
+	isort --check --diff twcli/ tests/
+	flake8 --count --show-source --statistics twcli/ tests/
+	python -m pytest --cov=twcli --cov-report=term-missing tests/
