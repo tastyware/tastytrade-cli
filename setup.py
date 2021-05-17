@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-from twcli.core.version import get_version
+from src.utils import get_version
 
 VERSION = get_version()
 
@@ -23,6 +23,6 @@ setup(
     include_package_data=True,
     entry_points="""
         [console_scripts]
-        twcli = twcli.main:main
+        tw = src.main:main
     """,
 )

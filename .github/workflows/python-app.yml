@@ -23,8 +23,8 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
     - name: Sorting...
-      run: isort --check --diff twcli/ tests/
+      run: isort --check --diff src/ tests/
     - name: Linting...
-      run: flake8 --count --show-source --statistics twcli/ tests/
+      run: flake8 --count --show-source --statistics --ignore=E501 src/ tests/
     - name: Testing...
-      run: python -m pytest --cov=twcli --cov-report=term-missing tests/
+      run: python -m pytest --cov=src --cov-report=term-missing tests/

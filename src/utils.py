@@ -5,3 +5,8 @@ VERSION = (0, 0, 1, 'alpha', 0)
 
 def get_version(version=VERSION):
     return cement_get_version(version)
+
+
+class TastyworksCLIError(Exception):
+    """Generic errors."""
+    pass

@@ -3,9 +3,3 @@ pytest-cov
 coverage
 flake8
 isort
-twine
-setuptools
-wheel
-jinja2
-colorlog
-pyyaml
