@@ -34,6 +34,7 @@ Conceptually the CLI should be split into the following subcomponents:
 - option:              Lookup, buy, or sell options.
 - stock:               Lookup, buy, or sell stocks.
 - future:              Lookup, buy, or sell futures.
+- crypto:              Lookup, buy, or sell crypto.
 - order:               View, replace, and cancel recent orders.
 - quant:               Quantitative analysis using `quantlib`
 - plot:                Simple portfolio charting tools
