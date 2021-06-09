@@ -8,7 +8,7 @@ LONG_DESCRIPTION = f.read()
 f.close()
 
 setup(
-    name='twcli',
+    name='tastyworks-cli',
     version=VERSION,
     description='An easy-to-use command line interface for Tastyworks!',
     long_description=LONG_DESCRIPTION,
