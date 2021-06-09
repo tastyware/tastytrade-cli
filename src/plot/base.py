@@ -24,7 +24,7 @@ class Trade():
         self.type = trade['Type']
         self.action = str(trade['Action'])
         self.symbol = str(trade['Symbol'])
-        self.value = trade['Value']
+        self.value = float(str(trade['Value']).replace(',', ''))
         self.quantity = trade['Quantity']
         self.fees = (float(trade['Commissions']) if trade['Commissions'] != '--' else 0.0) + trade['Fees']
 
