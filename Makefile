@@ -6,7 +6,6 @@ clean:
 venv:
 	python -m venv --prompt 'tw' env
 	env/bin/pip install -r requirements.txt
-	env/bin/pip install -r requirements-dev.txt
 
 test:
 	isort --check --diff src/ tests/
