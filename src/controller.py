@@ -73,13 +73,11 @@ class BaseController(Controller):
 
         # create a portfolio with the given history
         pf = Portfolio(df, net_liq=self.app.pargs.netliq)
-        pf.calculate()
 
         # get initial net liq if we're using percentage
         nl = None
         if self.app.pargs.percentage:
             pf_tmp = Portfolio(df, net_liq=True)
-            pf_tmp.calculate()
             nl = pf_tmp._get_starting_net_liq(self.app.pargs.duration)
 
         # get the P/L or net liq and save the graph

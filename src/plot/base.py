@@ -52,6 +52,8 @@ class Portfolio():
         # whether or not to use net liq instead of realized P/L
         self.net_liq = net_liq
 
+        self._calculate()
+
     def _process_dates(self, duration):
         if duration not in _DURATIONS:
             raise TastyworksCLIError('Not a valid duration!\t{all,10y,5y,1y,ytd,6m,3m,1m,5d}')
@@ -149,7 +151,7 @@ class Portfolio():
         fig, ax = plt.subplots()
 
         # graph percentages
-        if starting_net_liq != None:
+        if starting_net_liq is not None:
             initial_value = self.values[start]
             for i in range(start, len(self.values)):
                 self.values[i] = (self.values[i] - initial_value) / starting_net_liq * 100.0
@@ -178,7 +180,7 @@ class Portfolio():
         # return either the final net liq or the change in P/L
         return (self.values[-1] if self.net_liq else self.values[-1] - self.values[start])
 
-    def calculate(self):
+    def _calculate(self):
         for _, trade in self.df.iterrows():
             t = Trade(trade)
             # we could allow the user to disable this adjustment
