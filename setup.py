@@ -17,8 +17,15 @@ setup(
     author_email='graeme.holliday@pm.me',
     url='https://github.com/Graeme22/tastyworks-cli/',
     license='MIT',
+    install_requires=[
+        'cement>=3.0.4',
+        'tastyworks==4',
+        'matplotlib>=3.4.2',
+        'pandas>=1.2.4',
+        'QuantLib>=1.21',
+        'python-dateutil>=2.8.1'
+    ],
     packages=find_packages(exclude=['ez_setup', 'tests*']),
-    package_data={'twcli': ['templates/*']},
     include_package_data=True,
     entry_points="""
         [console_scripts]
