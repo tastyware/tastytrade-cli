@@ -1,8 +1,7 @@
 from setuptools import find_packages, setup
 
-from src.utils import get_version
+from src.utils import VERSION
 
-VERSION = get_version()
 
 f = open('README.md', 'r')
 LONG_DESCRIPTION = f.read()
@@ -23,6 +22,6 @@ setup(
     include_package_data=True,
     entry_points="""
         [console_scripts]
-        tw = src.main:main
+        tw = src.app:main
     """,
 )

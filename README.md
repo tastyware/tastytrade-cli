@@ -1,43 +1,51 @@
-# An easy-to-use command line interface for Tastyworks!
+# tastyworks-cli
+
+An easy-to-use command line interface for Tastyworks!
 
 ## Installation
-
-Currently unavailable pending release:
 
 ```
 $ pip install tastyworks-cli
 ```
 
-## Development
+## Usage
+
+Obtaining a CSV file: On the Tastyworks desktop app, go to the History tab. Under transactions (**not** YTD), pick a custom start date *before the creation of your account*. Scroll down until all of your transactions have loaded, then click "CSV" in the top right to export all the transactions. *You must export your entire transaction history, even if you only want to plot a more recent time period.*
+
+Available commands:
+```
+tw plot                chart your portfolio's net liquidity or profit/loss over time
+tw quant               mathematical and statistical analysis
+```
+Unavailable commands pending development:
+```
+tw order               view, replace, and cancel orders
+tw watchlist           view current prices and other data for symbols in your watchlists
+tw portfolio           view statistics and risk metrics for your portfolio
+tw crypto              buy, sell, and analyze cryptocurrencies
+tw future              buy, sell, and analyze futures
+tw stock               buy, sell, and analyze stock
+tw option              buy, sell, and analyze options
+```
+For more options, run `tw --help`.
+
+## Development/Contributing
 
 This project includes a number of helpers in the `Makefile` to streamline common development tasks.
-The following demonstrates setting up and working with a development environment:
 
+Creating a virtualenv for development:
 ```
-### create a virtualenv for development
 $ make venv
 $ source env/bin/activate
+```
 
-### run twcli application
-$ twcli --help
-
-### run pytest / coverage
+It's usually a good idea to make sure you're passing tests locally before submitting a PR:
+```
 $ make test
 ```
 
-### Usage
-Project is still in early development.
-Conceptually the CLI should be split into the following subcomponents:
-
-- watchlist:           Display and sort information about symbols from one of your watchlists.
-- portfolio:           View data about your portfolio as a whole and assess portfolio risk.
-- option:              Lookup, buy, or sell options.
-- stock:               Lookup, buy, or sell stocks.
-- future:              Lookup, buy, or sell futures.
-- crypto:              Lookup, buy, or sell crypto.
-- order:               View, replace, and cancel recent orders.
-- quant:               Quantitative analysis using `quantlib`
-- plot:                Simple portfolio charting tools
-
-### Contributing
 If you have a feature suggestion, find a bug, or would like to contribute, feel free to open an issue or create a pull request.
+
+## Disclaimer
+
+tastyworks and tastytrade are not affiliated with the makers of this program and do not endorse this product. This program does not provide investment, tax, or legal advice. Stock trading involves risk and is not suitable for all investors. Options involve risk and are not suitable for all investors as the special risks inherent to options trading may expose investors to potentially significant losses. Futures and futures options trading is speculative and is not suitable for all investors. Cryptocurrency trading is speculative and is not suitable for all investors.

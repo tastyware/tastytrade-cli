@@ -3,4 +3,5 @@ tastyworks>=4
 matplotlib>=3.4.2
 numpy>=1.20.3
 pandas>=1.2.4
-QuantLib==1.21
+QuantLib>=1.21
+python-dateutil>=2.8.1

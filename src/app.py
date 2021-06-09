@@ -1,49 +1,16 @@
-from cement import App, Controller, TestApp
+from cement import App, TestApp
 from cement.core.exc import CaughtSignal
-from cement.utils.version import get_version_banner
 
+from .controller import BaseController
 from .crypto.controller import CryptoController
 from .future.controller import FutureController
 from .option.controller import OptionController
 from .order.controller import OrderController
-from .plot.controller import PlotController
 from .portfolio.controller import PortfolioController
 from .quant.controller import QuantController
 from .stock.controller import StockController
-from .utils import TastyworksCLIError, get_version
+from .utils import TastyworksCLIError
 from .watchlist.controller import WatchlistController
-
-VERSION_BANNER = """
-An easy-to-use command line interface for Tastyworks! %s
-%s
-""" % (get_version(), get_version_banner())
-
-
-class BaseController(Controller):
-    class Meta:
-        label = 'tw'
-
-        # text displayed at the top of --help output
-        description = 'An easy-to-use command line interface for Tastyworks!'
-
-        # text displayed at the bottom of --help output
-        epilog = VERSION_BANNER
-
-        # controller level arguments. ex: 'twcli --version'
-        arguments = [
-            # add a version banner
-            (
-                ['-v', '--version'],
-                {
-                    'action': 'version',
-                    'version': VERSION_BANNER
-                }
-            ),
-        ]
-
-    def _default(self):
-        """Default action if no sub-command is passed."""
-        self.app.args.print_help()
 
 
 class TastyworksCLI(App):
@@ -66,7 +33,6 @@ class TastyworksCLI(App):
             WatchlistController,
             OrderController,
             QuantController,
-            PlotController,
         ]
 
 

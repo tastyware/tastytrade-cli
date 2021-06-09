@@ -1,4 +1,4 @@
-from src.main import TastyworksCLITest
+from src.app import TastyworksCLITest
 
 
 def test_twcli():
