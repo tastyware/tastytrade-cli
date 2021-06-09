@@ -38,7 +38,7 @@ class BaseController(Controller):
                 ['csv'],
                 {
                     'action': 'store',
-                    'help': 'csv file containing full portfolio transaction history'
+                    'help': 'path to .csv file containing full portfolio transaction history'
                 }
             ),
             (
