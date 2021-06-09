@@ -4,7 +4,6 @@ An easy-to-use command line interface for Tastyworks!
 
 ## Installation
 
-Currently unavailable pending the alpha release:
 ```
 $ pip install tastyworks-cli
 ```
@@ -15,6 +14,9 @@ Available commands:
 ```
 tw plot                chart your portfolio's net liquidity or profit/loss over time
 tw quant               mathematical and statistical analysis
+```
+Unavailable commands pending development:
+```
 tw order               view, replace, and cancel orders
 tw watchlist           view current prices and other data for symbols in your watchlists
 tw portfolio           view statistics and risk metrics for your portfolio

@@ -1,6 +1,5 @@
-from cement import App, Controller, TestApp
+from cement import App, TestApp
 from cement.core.exc import CaughtSignal
-from cement.utils.version import get_version_banner
 
 from .controller import BaseController
 from .crypto.controller import CryptoController

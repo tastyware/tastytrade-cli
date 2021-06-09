@@ -1,4 +1,4 @@
-VERSION = 'v0.1.0-alpha'
+VERSION = 'v0.1.0'
 
 
 class TastyworksCLIError(Exception):
