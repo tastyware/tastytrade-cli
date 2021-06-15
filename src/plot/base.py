@@ -22,11 +22,11 @@ class Trade():
     def __init__(self, trade):
         self.date = trade['Date'].split('T')[0]  # we just want the date
         self.type = trade['Type']
-        self.action = str(trade['Action'])
-        self.symbol = str(trade['Symbol'])
-        self.value = float(str(trade['Value']).replace(',', ''))
-        self.quantity = trade['Quantity']
-        self.fees = (float(trade['Commissions']) if trade['Commissions'] != '--' else 0.0) + trade['Fees']
+        self.action = trade['Action']
+        self.symbol = trade['Symbol']
+        self.value = float(trade['Value'].replace(',', ''))
+        self.quantity = float(trade['Quantity'])
+        self.fees = (float(trade['Commissions']) if trade['Commissions'] != '--' else 0.0) + float(trade['Fees'])
 
     def __str__(self):
         return f'{self.date}: {self.symbol} x{self.quantity} at ${self.value}'
@@ -51,6 +51,8 @@ class Portfolio():
         self.df = df
         # whether or not to use net liq instead of realized P/L
         self.net_liq = net_liq
+
+        self._calculate()
 
     def _process_dates(self, duration):
         if duration not in _DURATIONS:
@@ -133,12 +135,28 @@ class Portfolio():
 
         return start, fun, loc
 
-    def plot(self, duration):
+    def _get_starting_net_liq(self, duration):
+        '''
+        Calculates the net liquidity at the beginning of
+        the given time period for use with the percentage
+        argument. Modifies the state, so call this on a
+        throwaway Portfolio instance.
+        '''
+        start, _, _ = self._process_dates(duration.lower())
+
+        return self.values[start]
+
+    def plot(self, duration, starting_net_liq=None):
         start, fun, loc = self._process_dates(duration.lower())
         fig, ax = plt.subplots()
 
+        # graph percentages
+        if starting_net_liq is not None:
+            initial_value = self.values[start]
+            for i in range(start, len(self.values)):
+                self.values[i] = (self.values[i] - initial_value) / starting_net_liq * 100.0
         # shift graph vertically so it starts at zero if doing P/L
-        if not self.net_liq:
+        elif not self.net_liq:
             initial_value = self.values[start]
             for i in range(start, len(self.values)):
                 self.values[i] -= initial_value
@@ -162,7 +180,7 @@ class Portfolio():
         # return either the final net liq or the change in P/L
         return (self.values[-1] if self.net_liq else self.values[-1] - self.values[start])
 
-    def calculate(self):
+    def _calculate(self):
         for _, trade in self.df.iterrows():
             t = Trade(trade)
             # we could allow the user to disable this adjustment
