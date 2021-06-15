@@ -1,6 +1,5 @@
-VERSION = 'v0.1.6'
+VERSION = '0.2.0'
 
 
 class TastyworksCLIError(Exception):
-    """Generic errors."""
     pass

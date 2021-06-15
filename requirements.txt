@@ -1,4 +1,4 @@
-cement>=3.0.4
+click>=3.0.4
 tastyworks>=4
 matplotlib>=3.4.2
 numpy>=1.20.3

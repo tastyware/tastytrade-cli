@@ -18,7 +18,7 @@ setup(
     url='https://github.com/Graeme22/tastyworks-cli/',
     license='MIT',
     install_requires=[
-        'cement>=3.0.4',
+        'click>=8.0.1',
         'tastyworks==4',
         'matplotlib>=3.4.2',
         'pandas>=1.2.4',

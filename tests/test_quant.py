@@ -1,9 +1,7 @@
-"""Apply unit test to models"""
 from src.quant import models as sc
 
 
-def test_model():
-    """Apply unit tests"""
+def test_quant():
     # this is the simple test from the cookbook
     # for european with bsm
     m = sc.Model(price_underlying=100.0, price_strike=100, volatility=0.2,
