@@ -16,6 +16,7 @@ Available commands:
 ```
 tw plot                chart your portfolio's net liquidity or profit/loss over time
 tw quant               mathematical and statistical analysis
+tw pairs               analyze and size pairs trades
 ```
 Unavailable commands pending development:
 ```
@@ -27,7 +28,7 @@ tw future              buy, sell, and analyze futures
 tw stock               buy, sell, and analyze stock
 tw option              buy, sell, and analyze options
 ```
-For more options, run `tw --help`.
+For more options, run `tw --help` or `tw <subcommand> --help`.
 
 ## Development/Contributing
 
@@ -37,6 +38,12 @@ Creating a virtualenv for development:
 ```
 $ make venv
 $ source env/bin/activate
+```
+
+...after building the environment, will need to install the package: 
+
+```
+pip install . 
 ```
 
 It's usually a good idea to make sure you're passing tests locally before submitting a PR:

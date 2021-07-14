@@ -2,6 +2,7 @@ import click
 
 from .future.commands import future
 from .option.commands import option
+from .pairs.commands import pairs
 from .plot.commands import plot
 from .utils import VERSION
 
@@ -16,5 +17,6 @@ def main():
     app.add_command(future)
     app.add_command(option)
     app.add_command(plot)
+    app.add_command(pairs)
 
     app()
