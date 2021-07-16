@@ -6,13 +6,33 @@ def option():
     pass
 
 
-@option.command(help='Buy an option with the given parameters.')
-@click.option('-s', '--strike', type=float)
-@click.argument('quantity', type=int)
+@option.command(help='Buy or sell strangles with the given parameters.')
 @click.argument('underlying', type=str)
-@click.argument('price', type=float)
-def buy(quantity, underlying, price, strike):
-    print(f'Buying {quantity}x {underlying} ~ {strike:.2f} @ ${price:.2f}')
+@click.argument('quantity', type=int)
+def strangle(underlying, quantity):
+    default_date = 'jan'  # placeholder
+    default_strike_put = 420  # placeholder
+    default_strike_call = 440  # placeholder
+
+    date = input(f'Please enter a date for the contracts (default {default_date}): ')
+    strike_put = input(f'Please enter a strike for the put (default {default_strike_put}): ')
+    strike_call = input(f'Please enter a strike for the call (default {default_strike_call}): ')
+
+    bid, mid, ask = 4.20, 4.23, 4.25  # placeholder
+    print(f'Bid: {bid:.2f}\tMid: {mid:.2f}\tAsk: {ask:.2f}')
+    price = input('Please enter a limit price for the entire order (default mid): ')
+
+    print('Order Review')
+    print('============')
+    print('{')
+    for t in ['p', 'c']:
+        print(f'\t{quantity}{t} {underlying} ~{strike_put} #{date}')
+    print('}', f'@{price}')
+    confirm = input('Send order? Y/n ')
+
+
+if __name__ == '__main__':
+    option()
 
 
 @option.command()
