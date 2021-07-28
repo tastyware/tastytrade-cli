@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
@@ -24,9 +25,9 @@ class Trade():
         self.type = trade['Type']
         self.action = trade['Action']
         self.symbol = trade['Symbol']
-        self.value = float(trade['Value'].replace(',', ''))
-        self.quantity = float(trade['Quantity'].replace(',', ''))
-        self.fees = (float(trade['Commissions']) if trade['Commissions'] != '--' else 0.0) + float(trade['Fees'])
+        self.value = Decimal(trade['Value'].replace(',', ''))
+        self.quantity = Decimal(trade['Quantity'].replace(',', ''))
+        self.fees = (Decimal(trade['Commissions']) if trade['Commissions'] != '--' else Decimal(0.0)) + Decimal(trade['Fees'])
 
     def __str__(self):
         return f'{self.date}: {self.symbol} x{self.quantity} at ${self.value}'
@@ -46,7 +47,7 @@ class Portfolio():
         self.dates = []
         # a dictionary of symbol -> Trade, used to close positions
         self.positions = {}
-        self.last_value = 0.0
+        self.last_value = Decimal(0.0)
         # the given pandas dataframe
         self.df = df
         # whether or not to use net liq instead of realized P/L
