@@ -1,15 +1,16 @@
-import click
+import asyncclick as click
 
 
 @click.group(chain=True, help='Buy, sell, and analyze options.')
-def option():
+async def option():
     pass
 
 
 @option.command(help='Buy or sell strangles with the given parameters.')
 @click.argument('underlying', type=str)
 @click.argument('quantity', type=int)
-def strangle(underlying, quantity):
+async def strangle(underlying, quantity):
+    '''
     default_date = 'jan'  # placeholder
     default_strike_put = 420  # placeholder
     default_strike_call = 440  # placeholder
@@ -29,10 +30,8 @@ def strangle(underlying, quantity):
         print(f'\t{quantity}{t} {underlying} ~{strike_put} #{date}')
     print('}', f'@{price}')
     confirm = input('Send order? Y/n ')
-
-
-if __name__ == '__main__':
-    option()
+    '''
+    pass
 
 
 @option.command()
@@ -41,7 +40,7 @@ if __name__ == '__main__':
 @click.argument('quantity', type=int)
 @click.argument('underlying', type=str)
 @click.argument('price', type=float)
-def sell(delta, strike, quantity, underlying, price):
+async def sell(delta, strike, quantity, underlying, price):
     """Sell QUANTITY contracts on UNDERLYING.
     PRICE is the limit price for each individual contract.
 
@@ -55,5 +54,5 @@ def sell(delta, strike, quantity, underlying, price):
 @click.option('-e', '--expiration', type=str,
               help='The expiration date for the chain. Defaults to the closest monthly to 45 DTE.')
 @click.argument('underlying', type=str)
-def chain(underlying, expiration):
+async def chain(underlying, expiration):
     print(f'Options chain for {underlying} on {expiration}:')

@@ -1,4 +1,4 @@
-import click
+import asyncclick as click
 
 from .sizing import size as size_pair
 
@@ -11,7 +11,7 @@ def summarize(pair_specs):
 
 
 @click.group(chain=True, help='Evaluate and size pairs trades.')
-def pairs():
+async def pairs():
     pass
 
 
@@ -32,8 +32,8 @@ def pairs():
               help='Unit multplier for left leg.')
 @click.option('-u', '--multiplier-right', type=float, default=1,
               help='Unit multplier for right leg.')
-def size(interactive_mode, price_left, price_right, vol_left, vol_right,
-         unit_size_left, multiplier_left, multiplier_right):
+async def size(interactive_mode, price_left, price_right, vol_left, vol_right,
+               unit_size_left, multiplier_left, multiplier_right):
     if interactive_mode:
         args = dict()
         args['unit_size_left'] = 1
