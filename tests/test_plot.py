@@ -1,12 +1,15 @@
+from decimal import Decimal as D
+
 import pandas as pd
 
 from src.plot.csv import _DURATIONS, Portfolio
 
 _CSV_PATH = 'tests/data/transactions.csv'
-_NET_LIQUIDITY = 6645.84
-_NET_LIQUIDITY_PERCENT = 199.09
-_REALIZED_PANDL = -2186.87
-_REALIZED_PANDL_PERCENT = -98.42
+_NET_LIQUIDITY = D(6645.84)
+_NET_LIQUIDITY_PERCENT = D(199.09)
+_REALIZED_PANDL = D(-2186.87)
+_REALIZED_PANDL_PERCENT = D(-98.42)
+_PRECISION = D('1.00')
 
 
 def gen_portfolio(net_liq=False):
@@ -21,7 +24,8 @@ def test_plot_pandl():
     pf = gen_portfolio()
     val = pf.plot('all')
 
-    assert round(val, 2) == _REALIZED_PANDL
+    print(val, type(val))
+    assert val.quantize(_PRECISION) == _REALIZED_PANDL.quantize(_PRECISION)
 
 
 def test_twcli_plot_netliq():
@@ -30,7 +34,7 @@ def test_twcli_plot_netliq():
         pf = gen_portfolio(True)
         val = pf.plot('all')
 
-        assert round(val, 2) == _NET_LIQUIDITY
+        assert val.quantize(_PRECISION) == _NET_LIQUIDITY.quantize(_PRECISION)
 
 
 def test_plot_pandl_percent():
@@ -39,7 +43,7 @@ def test_plot_pandl_percent():
     nl = pf_tmp._get_starting_net_liq('all')
     val = pf.plot('all', starting_net_liq=nl)
 
-    assert round(val, 2) == _REALIZED_PANDL_PERCENT
+    assert val.quantize(_PRECISION) == _REALIZED_PANDL_PERCENT.quantize(_PRECISION)
 
 
 def test_plot_netliq_percent():
@@ -48,7 +52,7 @@ def test_plot_netliq_percent():
     nl = pf_tmp._get_starting_net_liq('all')
     val = pf.plot('all', starting_net_liq=nl)
 
-    assert round(val, 2) == _NET_LIQUIDITY_PERCENT
+    assert val.quantize(_PRECISION) == _NET_LIQUIDITY_PERCENT.quantize(_PRECISION)
 
 
 def test_plot_positions():

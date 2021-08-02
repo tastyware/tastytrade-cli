@@ -1,4 +1,4 @@
-import click
+import asyncclick as click
 
 from .future.commands import future
 from .option.commands import option
@@ -9,7 +9,7 @@ from .utils import VERSION
 
 @click.group()
 @click.version_option(VERSION)
-def app():
+async def app():
     pass
 
 
@@ -19,4 +19,4 @@ def main():
     app.add_command(plot)
     app.add_command(pairs)
 
-    app()
+    app(_anyio_backend='asyncio')

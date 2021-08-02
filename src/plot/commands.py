@@ -1,4 +1,4 @@
-import click
+import asyncclick as click
 import pandas as pd
 
 from .csv import Portfolio
@@ -12,7 +12,7 @@ from .csv import Portfolio
 @click.option('-d', '--duration', default='ytd',
               help='Possible values: {all,10y,5y,1y,ytd,6m,3m,1m,5d}')
 @click.argument('csv')
-def plot(netliq, percentage, duration, csv):
+async def plot(netliq, percentage, duration, csv):
     # read the given csv file and prepare it
     df = pd.read_csv(csv)
     df = df.reindex(index=df.index[::-1])

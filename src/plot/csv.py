@@ -1,11 +1,12 @@
 from datetime import datetime
+from decimal import Decimal as D
 
 import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
 from matplotlib.dates import (DateFormatter, DayLocator, MonthLocator,
                               YearLocator)
 
-from ..utils import TastyworksCLIError
+from ..utils import ZERO, TastyworksCLIError
 
 _month_fmt = DateFormatter('%b')
 _year_fmt = DateFormatter('%Y')
@@ -24,9 +25,9 @@ class Trade():
         self.type = trade['Type']
         self.action = trade['Action']
         self.symbol = trade['Symbol']
-        self.value = float(trade['Value'].replace(',', ''))
-        self.quantity = float(trade['Quantity'].replace(',', ''))
-        self.fees = (float(trade['Commissions']) if trade['Commissions'] != '--' else 0.0) + float(trade['Fees'])
+        self.value = D(trade['Value'].replace(',', ''))
+        self.quantity = D(trade['Quantity'].replace(',', ''))
+        self.fees = (D(trade['Commissions']) if trade['Commissions'] != '--' else ZERO) + D(trade['Fees'])
 
     def __str__(self):
         return f'{self.date}: {self.symbol} x{self.quantity} at ${self.value}'
@@ -46,7 +47,7 @@ class Portfolio():
         self.dates = []
         # a dictionary of symbol -> Trade, used to close positions
         self.positions = {}
-        self.last_value = 0.0
+        self.last_value = ZERO
         # the given pandas dataframe
         self.df = df
         # whether or not to use net liq instead of realized P/L
@@ -154,7 +155,7 @@ class Portfolio():
         if starting_net_liq is not None:
             initial_value = self.values[start]
             for i in range(start, len(self.values)):
-                self.values[i] = (self.values[i] - initial_value) / starting_net_liq * 100.0
+                self.values[i] = (self.values[i] - initial_value) / starting_net_liq * D(100)
         # shift graph vertically so it starts at zero if doing P/L
         elif not self.net_liq:
             initial_value = self.values[start]
