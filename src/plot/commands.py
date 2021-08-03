@@ -1,7 +1,11 @@
-import asyncclick as click
-import pandas as pd
+from datetime import datetime
 
-from .csv import Portfolio
+import asyncclick as click
+import petl
+from dateutil import parser
+
+from ..utils import RenewableTastyAPISession, choose_account
+from .plot import Portfolio
 
 
 @click.command(help='Chart your net liquidity or realized profit/loss over time.')
@@ -11,20 +15,37 @@ from .csv import Portfolio
               help='Whether to display percentages instead of absolute values in the chart.')
 @click.option('-d', '--duration', default='ytd',
               help='Possible values: {all,10y,5y,1y,ytd,6m,3m,1m,5d}')
-@click.argument('csv')
-async def plot(netliq, percentage, duration, csv):
-    # read the given csv file and prepare it
-    df = pd.read_csv(csv)
-    df = df.reindex(index=df.index[::-1])
-    df = df.astype(str)
+async def plot(netliq, percentage, duration):
+    sesh = RenewableTastyAPISession()
+    acc = await choose_account(sesh)
+    start_date = parser.parse(acc.opened_at.split('T')[0])
+    history = await acc.get_history(sesh, params={
+        'start-date': start_date.isoformat() + 'Z',
+        'end-date': datetime.now().isoformat() + 'Z',
+    })
+
+    table = petl.fromdicts(history).cut(
+        'executed-at',
+        'transaction-type',
+        'action',
+        'symbol',
+        'value',
+        'value-effect',
+        'quantity',
+        'commission',
+        'clearing-fees',
+        'proprietary-index-option-fees',
+        'regulatory-fees'
+    ).addfield('is-closing', lambda row: 'Close' in row['action'] if row['action'] else False) \
+     .sort(['executed-at', 'is-closing'])
 
     # create a portfolio with the given history
-    pf = Portfolio(df, net_liq=netliq)
+    pf = Portfolio(petl.data(table), net_liq=netliq)
 
     # get initial net liq if we're using percentage
     nl = None
     if percentage:
-        pf_tmp = Portfolio(df, net_liq=True)
+        pf_tmp = Portfolio(petl.data(table), net_liq=True)
         nl = pf_tmp._get_starting_net_liq(duration)
 
     # get the P/L or net liq and save the graph

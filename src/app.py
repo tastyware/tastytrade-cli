@@ -1,3 +1,6 @@
+import asyncio
+import sys
+
 import asyncclick as click
 
 from .future.commands import future
@@ -14,6 +17,9 @@ async def app():
 
 
 def main():
+    if sys.version_info[0] == 3 and sys.version_info[1] >= 8 and sys.platform.startswith('win'):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     app.add_command(future)
     app.add_command(option)
     app.add_command(plot)

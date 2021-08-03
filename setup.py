@@ -20,12 +20,12 @@ setup(
     install_requires=[
         'asyncclick>=8.0.1.3',
         'anyio>=3.3.0',
-        'tastyworks==4',
         'matplotlib>=3.4.2',
-        'pandas>=1.2.4',
-        'numpy>=1.20.3',
         'QuantLib>=1.21',
-        'python-dateutil>=2.8.1'
+        'pandas>=1.3.1',
+        'petl>=1.7.4',
+        'python-dateutil>=2.8.1',
+        'tastyworks-api>=4.1.0.3',
     ],
     packages=find_packages(exclude=['ez_setup', 'tests*']),
     include_package_data=True,

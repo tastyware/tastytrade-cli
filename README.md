@@ -10,12 +10,9 @@ $ pip install tastyworks-cli
 
 ## Usage
 
-Obtaining a CSV file: On the Tastyworks desktop app, go to the History tab. Under transactions (**not** YTD), pick a custom start date *before the creation of your account*. Scroll down until all of your transactions have loaded, then click "CSV" in the top right to export all the transactions. *You must export your entire transaction history, even if you only want to plot a more recent time period.*
-
 Available commands:
 ```
 tw plot                chart your portfolio's net liquidity or profit/loss over time
-tw quant               mathematical and statistical analysis
 tw pairs               analyze and size pairs trades
 ```
 Unavailable commands pending development:
@@ -27,6 +24,7 @@ tw crypto              buy, sell, and analyze cryptocurrencies
 tw future              buy, sell, and analyze futures
 tw stock               buy, sell, and analyze stock
 tw option              buy, sell, and analyze options
+tw quant               mathematical and statistical analysis
 ```
 For more options, run `tw --help` or `tw <subcommand> --help`.
 
@@ -40,10 +38,10 @@ $ make venv
 $ source env/bin/activate
 ```
 
-...after building the environment, will need to install the package: 
+Install the package: 
 
 ```
-pip install . 
+$ pip install -e . 
 ```
 
 It's usually a good idea to make sure you're passing tests locally before submitting a PR:
