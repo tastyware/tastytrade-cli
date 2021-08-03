@@ -1,8 +1,8 @@
 import getpass
 import os
-import requests
 from decimal import Decimal as D
 
+import requests
 from tastyworks.models.session import TastyAPISession
 from tastyworks.models.trading_account import TradingAccount
 
@@ -54,25 +54,26 @@ class RenewableTastyAPISession(TastyAPISession):
 
         return username, password
 
+
 async def choose_account(session):
     accounts = await TradingAccount.get_remote_accounts(session)
+    accounts = [acc for acc in accounts if not acc.is_closed]
 
     account = os.getenv('TW_ACC')
     if account:
         for acc in accounts:
             if acc.account_number == account:
                 return acc
-        
+
         print('Warning: Environment variable TW_ACC is set, but a matching account does not exist.')
 
-    i = 1
-    for acc in accounts:
-        if not acc.is_closed:
-            print(f'{i}) {accounts[i].nickname} - {accounts[i].account_number}')
-            i += 1
+    for i in range(len(accounts)):
+        print(f'{i + 1}) {accounts[i].nickname} ~ {accounts[i].account_number}')
     choice = input('Choose an account (default 1): ')
+    if not choice:
+        choice = 1
 
-    if int(choice) > i:
+    if int(choice) > len(accounts):
         raise TastyworksCLIError('Invalid account choice!')
 
-    return accounts[choice - 1 - (len(accounts) - i)]
+    return accounts[int(choice) - 1]

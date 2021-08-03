@@ -3,10 +3,9 @@ from datetime import datetime
 import asyncclick as click
 import petl
 from dateutil import parser
-from dateutil.relativedelta import relativedelta
 
-from .plot import Portfolio
 from ..utils import RenewableTastyAPISession, choose_account
+from .plot import Portfolio
 
 
 @click.command(help='Chart your net liquidity or realized profit/loss over time.')
@@ -24,18 +23,21 @@ async def plot(netliq, percentage, duration):
         'start-date': start_date.isoformat() + 'Z',
         'end-date': datetime.now().isoformat() + 'Z',
     })
-   
+
     table = petl.fromdicts(history).cut(
         'executed-at',
         'transaction-type',
-        'transaction-sub-type',
+        'action',
         'symbol',
         'value',
         'value-effect',
         'quantity',
         'commission',
-        # fees,
-    ).sort('executed-at')
+        'clearing-fees',
+        'proprietary-index-option-fees',
+        'regulatory-fees'
+    ).addfield('is-closing', lambda row: 'Close' in row['action'] if row['action'] else False) \
+     .sort(['executed-at', 'is-closing'])
 
     # create a portfolio with the given history
     pf = Portfolio(petl.data(table), net_liq=netliq)

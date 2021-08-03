@@ -13,7 +13,6 @@ $ pip install tastyworks-cli
 Available commands:
 ```
 tw plot                chart your portfolio's net liquidity or profit/loss over time
-tw quant               mathematical and statistical analysis
 tw pairs               analyze and size pairs trades
 ```
 Unavailable commands pending development:
@@ -25,6 +24,7 @@ tw crypto              buy, sell, and analyze cryptocurrencies
 tw future              buy, sell, and analyze futures
 tw stock               buy, sell, and analyze stock
 tw option              buy, sell, and analyze options
+tw quant               mathematical and statistical analysis
 ```
 For more options, run `tw --help` or `tw <subcommand> --help`.
 

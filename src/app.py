@@ -1,7 +1,7 @@
+import asyncio
 import sys
 
 import asyncclick as click
-import asyncio
 
 from .future.commands import future
 from .option.commands import option

@@ -1,9 +1,8 @@
+import os
 from datetime import datetime
 from decimal import Decimal as D
-import os
 
 import matplotlib.pyplot as plt
-import petl
 from dateutil.relativedelta import relativedelta
 from matplotlib.dates import (DateFormatter, DayLocator, MonthLocator,
                               YearLocator)
@@ -20,18 +19,20 @@ _DURATIONS = ['all', '10y', '5y', '1y', 'ytd', '6m', '3m', '1m', '5d']
 class Trade():
     '''
     Object to hold a specific trade and its notable properties.
-    Contains the important information of one row of the CSV.
+    Contains the important information of one row of the table.
     '''
     def __init__(self, trade):
-        print(trade)
         self.date = trade[0].split('T')[0]  # we just want the date
         self.type = trade[1]
         self.action = trade[2]
         self.symbol = trade[3]
-        self.value = D(trade[4].replace(',', ''))
-        self.value *= -1 if trade[5] == 'Debit' else 1
+        self.value = D(trade[4].replace(',', '')) * (-1 if trade[5] == 'Debit' else 1)
         self.quantity = D(trade[6].replace(',', '')) if trade[6] else ZERO
-        #self.fees = (D(trade['commission']) if trade['commission'] != '--' else ZERO) + D(trade['fees'])
+        commission = -D(trade[7]) if trade[7] else ZERO
+        clearing_fees = -D(trade[8]) if trade[8] else ZERO
+        pio_fees = -D(trade[9]) if trade[9] else ZERO
+        regulatory_fees = -D(trade[10]) if trade[10] else ZERO
+        self.fees = commission + clearing_fees + pio_fees + regulatory_fees
 
     def __str__(self):
         return f'{self.date}: {self.symbol} x{self.quantity} at ${self.value}'
@@ -151,7 +152,7 @@ class Portfolio():
 
         return self.values[start]
 
-    def plot(self, duration, starting_net_liq=None):
+    def plot(self, duration, starting_net_liq=None, gen_img=True):
         start, fun, loc = self._process_dates(duration.lower())
         fig, ax = plt.subplots()
 
@@ -166,25 +167,26 @@ class Portfolio():
             for i in range(start, len(self.values)):
                 self.values[i] -= initial_value
 
-        # color based on net liq or profitability
-        if self.net_liq:
-            color = 'steelblue'
-        elif self.values[-1] < 0:
-            color = 'crimson'  # :(
-        else:
-            color = 'mediumseagreen'
+        if gen_img:
+            # color based on net liq or profitability
+            if self.net_liq:
+                color = 'steelblue'
+            elif self.values[-1] < 0:
+                color = 'crimson'  # :(
+            else:
+                color = 'mediumseagreen'
 
-        plt.plot(self.dates[start:], self.values[start:], color=color)
-        plt.title('Net Liquidity' if self.net_liq else 'Realized P/L')
-        ax.xaxis.set_major_locator(loc)
-        ax.xaxis.set_major_formatter(fun)
+            plt.plot(self.dates[start:], self.values[start:], color=color)
+            plt.title('Net Liquidity' if self.net_liq else 'Realized P/L')
+            ax.xaxis.set_major_locator(loc)
+            ax.xaxis.set_major_formatter(fun)
 
-        # save plot to current directory
-        fp = 'netliq.png' if self.net_liq else 'pandl.png'
-        fig.savefig(fp)
+            # save plot to current directory
+            fp = 'netliq.png' if self.net_liq else 'pandl.png'
+            fig.savefig(fp)
 
-        # open plot in default image viewer
-        os.startfile(fp)
+            # open plot in default image viewer
+            os.startfile(fp)
 
         # return either the final net liq or the change in P/L
         return (self.values[-1] if self.net_liq else self.values[-1] - self.values[start])
@@ -193,7 +195,7 @@ class Portfolio():
         for trade in self.json:
             t = Trade(trade)
             # we could allow the user to disable this adjustment
-            #self.last_value += t.fees
+            self.last_value += t.fees
 
             if t.type == 'Trade':
                 # futures are handled differently. instead of opening
@@ -204,11 +206,11 @@ class Portfolio():
                 if t.symbol[0] == '/':
                     # symbol already in positions dict
                     if t.symbol in self.positions:
-                        self.positions[t.symbol].quantity += t.quantity * (-1 if 'SELL' in t.action else 1)
+                        self.positions[t.symbol].quantity += t.quantity * (-1 if 'sell' in t.action.lower() else 1)
                         self.positions[t.symbol].value += t.value
                     else:
                         self.positions[t.symbol] = t
-                        self.positions[t.symbol].quantity *= (-1 if 'SELL' in t.action else 1)
+                        self.positions[t.symbol].quantity *= (-1 if 'sell' in t.action.lower() else 1)
 
                     # realize gain/loss here
                     if self.positions[t.symbol].quantity == 0:
@@ -249,13 +251,13 @@ class Portfolio():
             # about are expiration, assignment, exercise, and awards.
             elif t.type == 'Receive Deliver':
                 # exercise/awards
-                if 'open' in t.action.lower():
+                if t.action == 'Buy to Open' or t.action == 'Sell to Open':
                     if t.symbol in self.positions:
                         self.positions[t.symbol].quantity += t.quantity
                         self.positions[t.symbol].value += t.value
                     else:
                         self.positions[t.symbol] = t
-                
+
                 # assignment/expiration/symbol change
                 elif t.symbol in self.positions:
                     self.positions[t.symbol].quantity -= t.quantity
@@ -266,10 +268,6 @@ class Portfolio():
                         self.last_value += self.positions[t.symbol].value
                         self.values.append(self.last_value)
                         del self.positions[t.symbol]
-                
-                # symbol change (new half)
-                elif t.action == 'Symbol Change':
-                    self.positions[t.symbol] = t
 
             # apply mark-to-market even when not tracking net liq;
             # otherwise, this is only done if we're tracking net liq.
