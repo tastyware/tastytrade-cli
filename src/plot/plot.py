@@ -1,7 +1,9 @@
 from datetime import datetime
 from decimal import Decimal as D
+import os
 
 import matplotlib.pyplot as plt
+import petl
 from dateutil.relativedelta import relativedelta
 from matplotlib.dates import (DateFormatter, DayLocator, MonthLocator,
                               YearLocator)
@@ -21,13 +23,15 @@ class Trade():
     Contains the important information of one row of the CSV.
     '''
     def __init__(self, trade):
-        self.date = trade['Date'].split('T')[0]  # we just want the date
-        self.type = trade['Type']
-        self.action = trade['Action']
-        self.symbol = trade['Symbol']
-        self.value = D(trade['Value'].replace(',', ''))
-        self.quantity = D(trade['Quantity'].replace(',', ''))
-        self.fees = (D(trade['Commissions']) if trade['Commissions'] != '--' else ZERO) + D(trade['Fees'])
+        print(trade)
+        self.date = trade[0].split('T')[0]  # we just want the date
+        self.type = trade[1]
+        self.action = trade[2]
+        self.symbol = trade[3]
+        self.value = D(trade[4].replace(',', ''))
+        self.value *= -1 if trade[5] == 'Debit' else 1
+        self.quantity = D(trade[6].replace(',', '')) if trade[6] else ZERO
+        #self.fees = (D(trade['commission']) if trade['commission'] != '--' else ZERO) + D(trade['fees'])
 
     def __str__(self):
         return f'{self.date}: {self.symbol} x{self.quantity} at ${self.value}'
@@ -35,12 +39,12 @@ class Trade():
 
 class Portfolio():
     '''
-    Starting with the given CSV, runs forwards through
+    Starting with the given table, runs forwards through
     time, tracking either realized P/L or net liquidity,
     and saving those results. Contains methods to process
-    a CSV file, handle date ranges, and draw a plot.
+    a petl table, handle date ranges, and draw a plot.
     '''
-    def __init__(self, df, net_liq=False):
+    def __init__(self, json, net_liq=False):
         # contains the P/L or net liquidity at a certain date
         self.values = []
         # contains the dates at which closing trades were placed
@@ -48,8 +52,8 @@ class Portfolio():
         # a dictionary of symbol -> Trade, used to close positions
         self.positions = {}
         self.last_value = ZERO
-        # the given pandas dataframe
-        self.df = df
+        # the given petl table
+        self.json = json
         # whether or not to use net liq instead of realized P/L
         self.net_liq = net_liq
 
@@ -120,7 +124,7 @@ class Portfolio():
             raise TastyworksCLIError('Not enough closing trades present! There must be at least two closing trades present in the given timeframe.')
 
         # change formatting based on scale
-        delta = datetime.now() - start_date
+        delta = datetime.now() - self.dates[0]
         if delta.days <= 31:
             fun = _d_fmt
             loc = DayLocator()
@@ -176,16 +180,20 @@ class Portfolio():
         ax.xaxis.set_major_formatter(fun)
 
         # save plot to current directory
-        fig.savefig('netliq.png' if self.net_liq else 'pandl.png')
+        fp = 'netliq.png' if self.net_liq else 'pandl.png'
+        fig.savefig(fp)
+
+        # open plot in default image viewer
+        os.startfile(fp)
 
         # return either the final net liq or the change in P/L
         return (self.values[-1] if self.net_liq else self.values[-1] - self.values[start])
 
     def _calculate(self):
-        for _, trade in self.df.iterrows():
+        for trade in self.json:
             t = Trade(trade)
             # we could allow the user to disable this adjustment
-            self.last_value += t.fees
+            #self.last_value += t.fees
 
             if t.type == 'Trade':
                 # futures are handled differently. instead of opening
@@ -209,7 +217,7 @@ class Portfolio():
                         self.values.append(self.last_value)
                         del self.positions[t.symbol]
                 # non-futures opening trades
-                elif 'OPEN' in t.action:
+                elif 'open' in t.action.lower():
                     # symbol already in positions dict
                     if t.symbol in self.positions:
                         self.positions[t.symbol].quantity += t.quantity
@@ -241,13 +249,14 @@ class Portfolio():
             # about are expiration, assignment, exercise, and awards.
             elif t.type == 'Receive Deliver':
                 # exercise/awards
-                if 'OPEN' in t.action:
+                if 'open' in t.action.lower():
                     if t.symbol in self.positions:
                         self.positions[t.symbol].quantity += t.quantity
                         self.positions[t.symbol].value += t.value
                     else:
                         self.positions[t.symbol] = t
-                # assignment/expiration
+                
+                # assignment/expiration/symbol change
                 elif t.symbol in self.positions:
                     self.positions[t.symbol].quantity -= t.quantity
                     self.positions[t.symbol].value += t.value
@@ -257,10 +266,14 @@ class Portfolio():
                         self.last_value += self.positions[t.symbol].value
                         self.values.append(self.last_value)
                         del self.positions[t.symbol]
+                
+                # symbol change (new half)
+                elif t.action == 'Symbol Change':
+                    self.positions[t.symbol] = t
 
             # apply mark-to-market even when not tracking net liq;
             # otherwise, this is only done if we're tracking net liq.
-            elif t.type == 'Money Movement' and (self.net_liq or t.symbol[0] == '/'):
+            elif t.type == 'Money Movement' and (self.net_liq or (t.symbol[0] == '/' if t.symbol else False)):
                 self.dates.append(t.date)
                 self.last_value += t.value
                 self.values.append(self.last_value)
