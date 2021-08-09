@@ -1,8 +1,5 @@
-from datetime import datetime
-
 import asyncclick as click
 import petl
-from dateutil import parser
 
 from ..utils import RenewableTastyAPISession, choose_account
 from .plot import Portfolio
@@ -18,11 +15,7 @@ from .plot import Portfolio
 async def plot(netliq, percentage, duration):
     sesh = RenewableTastyAPISession()
     acc = await choose_account(sesh)
-    start_date = parser.parse(acc.opened_at.split('T')[0])
-    history = await acc.get_history(sesh, params={
-        'start-date': start_date.isoformat() + 'Z',
-        'end-date': datetime.now().isoformat() + 'Z',
-    })
+    history = await acc.get_history(sesh)
 
     table = petl.fromdicts(history).cut(
         'executed-at',

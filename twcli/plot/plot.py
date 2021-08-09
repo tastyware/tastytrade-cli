@@ -154,7 +154,6 @@ class Portfolio():
 
     def plot(self, duration, starting_net_liq=None, gen_img=True):
         start, fun, loc = self._process_dates(duration.lower())
-        fig, ax = plt.subplots()
 
         # graph percentages
         if starting_net_liq is not None:
@@ -168,6 +167,8 @@ class Portfolio():
                 self.values[i] -= initial_value
 
         if gen_img:
+            fig, ax = plt.subplots()
+
             # color based on net liq or profitability
             if self.net_liq:
                 color = 'steelblue'

@@ -1,4 +1,4 @@
-from src.quant import models as sc
+from twcli.quant import models as sc
 
 
 def test_quant():

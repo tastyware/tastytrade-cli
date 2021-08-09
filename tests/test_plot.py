@@ -2,7 +2,7 @@ from decimal import Decimal as D
 
 import petl
 
-from src.plot.plot import _DURATIONS, Portfolio
+from twcli.plot.plot import _DURATIONS, Portfolio
 
 _DATABASE_PATH = 'tests/data/transactions.json'
 _NET_LIQUIDITY = D(7018.60)

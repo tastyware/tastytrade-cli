@@ -4,10 +4,10 @@ clean:
 	find . -name '*.py[co]' -delete
 
 venv:
-	python -m venv --prompt 'tw' env
+	python -m venv --prompt 'twcli' env
 	env/bin/pip install -r requirements.txt
 
 test:
-	isort --check --diff src/ tests/
-	flake8 --count --show-source --statistics --ignore=E501 src/ tests/
-	python -m pytest --cov=src --cov-report=term-missing tests/
+	isort --check --diff twcli/ tests/
+	flake8 --count --show-source --statistics --ignore=E501 twcli/ tests/
+	python -m pytest --cov=twcli --cov-report=term-missing tests/

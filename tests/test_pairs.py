@@ -1,6 +1,6 @@
 from math import floor
 
-from src.pairs import sizing
+from twcli.pairs import sizing
 
 
 def test_sizing():
