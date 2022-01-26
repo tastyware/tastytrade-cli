@@ -1,14 +1,11 @@
 import asyncclick as click
-
 from rich.console import Console
 from rich.table import Table
-
-from tastyworks.models.option_chain import get_option_chain, OptionType
+from tastyworks.models.option_chain import OptionType, get_option_chain
 from tastyworks.models.underlying import Underlying
 from tastyworks.streamer import DataStreamer
-from tastyworks.utils import get_third_friday
 
-from ..utils import RenewableTastyAPISession, LOGGER, get_tasty_monthly
+from ..utils import RenewableTastyAPISession, get_tasty_monthly
 
 
 @click.group(chain=True, help='Buy, sell, and analyze options.')
@@ -61,7 +58,7 @@ async def sell(delta, strike, quantity, underlying, price):
 
 
 @option.command(help='Fetch and display an options chain.')
-#@click.option('-e', '--expiration', type=str, default=get_tasty_monthly(),
+# @click.option('-e', '--expiration', type=str, default=get_tasty_monthly(),
 #              help='The expiration date for the chain. Defaults to the closest monthly to 45 DTE.')
 @click.option('-s', '--strikes', type=int, default=8,
               help='The number of strikes to fetch above and below the spot price.')
@@ -102,7 +99,7 @@ async def chain(underlying, strikes):
             calls.append(option)
         else:
             puts.append(option)
-    
+
     puts_to_fetch = []
     calls_to_fetch = []
     if strikes * 2 < len(calls):

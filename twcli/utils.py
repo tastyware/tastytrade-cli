@@ -1,14 +1,13 @@
-from datetime import datetime, timedelta, date
-from dateutil.relativedelta import relativedelta, FR
 import getpass
 import logging
 import os
+from datetime import date, timedelta
 from decimal import Decimal as D
 
 import requests
+from dateutil.relativedelta import FR, relativedelta
 from tastyworks.models.session import TastyAPISession
 from tastyworks.models.trading_account import TradingAccount
-from tastyworks.utils import get_third_friday
 
 VERSION = '0.4.0'
 ZERO = D(0)

@@ -1,7 +1,7 @@
 import asyncclick as click
 import petl
 
-from ..utils import RenewableTastyAPISession, LOGGER
+from ..utils import RenewableTastyAPISession
 from .plot import Portfolio
 
 
