@@ -1,4 +1,6 @@
 import os
+import sys
+import subprocess
 from datetime import datetime
 from decimal import Decimal as D
 
@@ -187,7 +189,11 @@ class Portfolio():
             fig.savefig(fp)
 
             # open plot in default image viewer
-            os.startfile(fp)
+            if sys.platform == 'win32':
+                os.startfile(fp)
+            else:
+                opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
+                subprocess.call([opener, fp])
 
         # return either the final net liq or the change in P/L
         return (self.values[-1] if self.net_liq else self.values[-1] - self.values[start])

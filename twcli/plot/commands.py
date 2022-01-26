@@ -1,7 +1,7 @@
 import asyncclick as click
 import petl
 
-from ..utils import RenewableTastyAPISession, choose_account
+from ..utils import RenewableTastyAPISession, LOGGER
 from .plot import Portfolio
 
 
@@ -13,8 +13,9 @@ from .plot import Portfolio
 @click.option('-d', '--duration', default='ytd',
               help='Possible values: {all,10y,5y,1y,ytd,6m,3m,1m,5d}')
 async def plot(netliq, percentage, duration):
-    sesh = RenewableTastyAPISession()
-    acc = await choose_account(sesh)
+    sesh = await RenewableTastyAPISession.create()
+    # choose an account
+    acc = sesh.accounts[0]  # placeholder
     history = await acc.get_history(sesh)
 
     table = petl.fromdicts(history).cut(

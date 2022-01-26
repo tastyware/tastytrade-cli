@@ -1,13 +1,18 @@
+from datetime import datetime, timedelta, date
+from dateutil.relativedelta import relativedelta, FR
 import getpass
+import logging
 import os
 from decimal import Decimal as D
 
 import requests
 from tastyworks.models.session import TastyAPISession
 from tastyworks.models.trading_account import TradingAccount
+from tastyworks.utils import get_third_friday
 
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 ZERO = D(0)
+LOGGER = logging.getLogger(__name__)
 
 _TOKEN_PATH = '.tastyworks/twcli/sesh'
 
@@ -20,6 +25,7 @@ class RenewableTastyAPISession(TastyAPISession):
     def __init__(self, API_url=None):
         path = os.path.join(os.path.expanduser('~'), _TOKEN_PATH)
         self.logged_in = False
+        self.accounts = None
 
         # try to load token
         if os.path.exists(path):
@@ -42,7 +48,7 @@ class RenewableTastyAPISession(TastyAPISession):
             with open(path, 'w') as f:
                 f.write(self.session_token)
         else:
-            print('Logged in with cached session token.')
+            LOGGER.debug('Logged in with cached session token.')
 
     def _get_credentials(self):
         username = os.getenv('TW_USER')
@@ -54,26 +60,23 @@ class RenewableTastyAPISession(TastyAPISession):
 
         return username, password
 
+    @classmethod
+    async def create(cls):
+        self = RenewableTastyAPISession()
+        accounts = await TradingAccount.get_remote_accounts(self)
+        self.accounts = [acc for acc in accounts if not acc.is_closed]
 
-async def choose_account(session):
-    accounts = await TradingAccount.get_remote_accounts(session)
-    accounts = [acc for acc in accounts if not acc.is_closed]
+        return self
 
-    account = os.getenv('TW_ACC')
-    if account:
-        for acc in accounts:
-            if acc.account_number == account:
-                return acc
 
-        print('Warning: Environment variable TW_ACC is set, but a matching account does not exist.')
+def get_tasty_monthly(date=date.today()):
+    option1 = get_monthly(date + timedelta(weeks=4))
+    option2 = get_monthly(date + timedelta(weeks=8))
+    day45 = date + timedelta(days=45)
+    return option1 if day45 - option1 < option2 - day45 else option2
 
-    for i in range(len(accounts)):
-        print(f'{i + 1}) {accounts[i].nickname} ~ {accounts[i].account_number}')
-    choice = input('Choose an account (default 1): ')
-    if not choice:
-        choice = 1
 
-    if int(choice) > len(accounts):
-        raise TastyworksCLIError('Invalid account choice!')
-
-    return accounts[int(choice) - 1]
+def get_monthly(date=date.today()):
+    date = date.replace(day=1)
+    date += relativedelta(weeks=2, weekday=FR)
+    return date

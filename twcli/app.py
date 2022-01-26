@@ -7,7 +7,7 @@ from .future.commands import future
 from .option.commands import option
 from .pairs.commands import pairs
 from .plot.commands import plot
-from .utils import VERSION
+from .utils import LOGGER, VERSION
 
 
 @click.group()
@@ -19,6 +19,7 @@ async def app():
 def main():
     if sys.version_info[0] == 3 and sys.version_info[1] >= 8 and sys.platform.startswith('win'):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        LOGGER.debug('Using Windows-specific event loop policy')
 
     app.add_command(future)
     app.add_command(option)
