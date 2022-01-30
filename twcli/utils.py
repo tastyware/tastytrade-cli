@@ -2,7 +2,8 @@ import getpass
 import logging
 import os
 from datetime import date, timedelta
-from decimal import Decimal as D
+from decimal import Decimal
+from typing import Optional
 
 import requests
 from dateutil.relativedelta import FR, relativedelta
@@ -10,7 +11,7 @@ from tastyworks.models.session import TastyAPISession
 from tastyworks.models.trading_account import TradingAccount
 
 VERSION = '0.4.0'
-ZERO = D(0)
+ZERO = Decimal(0)
 LOGGER = logging.getLogger(__name__)
 
 _TOKEN_PATH = '.tastyworks/twcli/sesh'
@@ -68,14 +69,25 @@ class RenewableTastyAPISession(TastyAPISession):
         return self
 
 
-def get_tasty_monthly(date=date.today()):
-    option1 = get_monthly(date + timedelta(weeks=4))
-    option2 = get_monthly(date + timedelta(weeks=8))
-    day45 = date + timedelta(days=45)
+def get_tasty_monthly(day: Optional[date] = date.today()) -> date:
+    option1 = get_monthly(day + timedelta(weeks=4))
+    option2 = get_monthly(day + timedelta(weeks=8))
+    day45 = day + timedelta(days=45)
     return option1 if day45 - option1 < option2 - day45 else option2
 
 
-def get_monthly(date=date.today()):
-    date = date.replace(day=1)
-    date += relativedelta(weeks=2, weekday=FR)
-    return date
+def get_monthly(day: Optional[date] = date.today()) -> date:
+    day = date.replace(day=1)
+    day += relativedelta(weeks=2, weekday=FR)
+    return day
+
+
+def get_confirmation(prompt: str) -> bool:
+    while True:
+        answer = input(prompt).lower()
+        if not answer:
+            return True
+        if answer[0] == 'y':
+            return True
+        if answer[0] == 'n':
+            return False

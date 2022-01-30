@@ -1,3 +1,5 @@
+from typing import Optional
+
 import asyncclick as click
 import petl
 
@@ -12,7 +14,7 @@ from .plot import Portfolio
               help='Whether to display percentages instead of absolute values in the chart.')
 @click.option('-d', '--duration', default='ytd',
               help='Possible values: {all,10y,5y,1y,ytd,6m,3m,1m,5d}')
-async def plot(netliq, percentage, duration):
+async def plot(netliq: Optional[bool] = False, percentage: Optional[bool] = False, duration: Optional[str] = None):
     sesh = await RenewableTastyAPISession.create()
     # choose an account
     acc = sesh.accounts[0]  # placeholder

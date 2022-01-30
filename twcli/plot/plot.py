@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime
-from decimal import Decimal as D
+from decimal import Decimal
 
 import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
@@ -28,12 +28,12 @@ class Trade():
         self.type = trade[1]
         self.action = trade[2]
         self.symbol = trade[3]
-        self.value = D(trade[4].replace(',', '')) * (-1 if trade[5] == 'Debit' else 1)
-        self.quantity = D(trade[6].replace(',', '')) if trade[6] else ZERO
-        commission = -D(trade[7]) if trade[7] else ZERO
-        clearing_fees = -D(trade[8]) if trade[8] else ZERO
-        pio_fees = -D(trade[9]) if trade[9] else ZERO
-        regulatory_fees = -D(trade[10]) if trade[10] else ZERO
+        self.value = Decimal(trade[4].replace(',', '')) * (-1 if trade[5] == 'Debit' else 1)
+        self.quantity = Decimal(trade[6].replace(',', '')) if trade[6] else ZERO
+        commission = -Decimal(trade[7]) if trade[7] else ZERO
+        clearing_fees = -Decimal(trade[8]) if trade[8] else ZERO
+        pio_fees = -Decimal(trade[9]) if trade[9] else ZERO
+        regulatory_fees = -Decimal(trade[10]) if trade[10] else ZERO
         self.fees = commission + clearing_fees + pio_fees + regulatory_fees
 
     def __str__(self):
@@ -161,7 +161,7 @@ class Portfolio():
         if starting_net_liq is not None:
             initial_value = self.values[start]
             for i in range(start, len(self.values)):
-                self.values[i] = (self.values[i] - initial_value) / starting_net_liq * D(100)
+                self.values[i] = (self.values[i] - initial_value) / starting_net_liq * Decimal(100)
         # shift graph vertically so it starts at zero if doing P/L
         elif not self.net_liq:
             initial_value = self.values[start]

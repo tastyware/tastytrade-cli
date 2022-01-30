@@ -12,19 +12,19 @@ $ pip install tastyworks-cli
 
 Available commands:
 ```
+twcli option              buy, sell, and analyze options
 twcli plot                chart your portfolio's net liquidity or profit/loss over time
-twcli pairs               analyze and size pairs trades
 ```
 Unavailable commands pending development:
 ```
-twcli order               view, replace, and cancel orders
-twcli watchlist           view current prices and other data for symbols in your watchlists
-twcli portfolio           view statistics and risk metrics for your portfolio
 twcli crypto              buy, sell, and analyze cryptocurrencies
 twcli future              buy, sell, and analyze futures
-twcli stock               buy, sell, and analyze stock
-twcli option              buy, sell, and analyze options
+twcli order               view, replace, and cancel orders
+twcli pairs               analyze and size pairs trades
+twcli portfolio           view statistics and risk metrics for your portfolio
 twcli quant               mathematical and statistical analysis
+twcli stock               buy, sell, and analyze stock
+twcli watchlist           view current prices and other data for symbols in your watchlists
 ```
 For more options, run `twcli --help` or `twcli <subcommand> --help`.
 

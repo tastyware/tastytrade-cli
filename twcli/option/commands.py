@@ -1,11 +1,19 @@
+from decimal import Decimal
+from typing import Optional
+
 import asyncclick as click
 from rich.console import Console
 from rich.table import Table
-from tastyworks.models.option_chain import OptionType, get_option_chain
-from tastyworks.models.underlying import Underlying
+from tastyworks.models.option import Option, OptionType
+from tastyworks.models.option_chain import get_option_chain
+from tastyworks.models.order import (Order, OrderDetails, OrderPriceEffect,
+                                     OrderType)
+from tastyworks.models.trading_account import TradingAccount
+from tastyworks.models.underlying import Underlying, UnderlyingType
 from tastyworks.streamer import DataStreamer
 
-from ..utils import RenewableTastyAPISession, get_tasty_monthly
+from .option import choose_expiration
+from ..utils import RenewableTastyAPISession, get_tasty_monthly, get_confirmation
 
 
 @click.group(chain=True, help='Buy, sell, and analyze options.')
@@ -16,15 +24,14 @@ async def option():
 @option.command(help='Buy or sell strangles with the given parameters.')
 @click.argument('underlying', type=str)
 @click.argument('quantity', type=int)
-async def strangle(underlying, quantity):
+async def strangle(underlying: str, quantity: int):
     '''
-    default_date = 'jan'  # placeholder
-    default_strike_put = 420  # placeholder
-    default_strike_call = 440  # placeholder
+    sesh = await RenewableTastyAPISession.create()
+    undl = Underlying(underlying)
+    expiration = await choose_expiration(sesh, undl)
 
-    date = input(f'Please enter a date for the contracts (default {default_date}): ')
-    strike_put = input(f'Please enter a strike for the put (default {default_strike_put}): ')
-    strike_call = input(f'Please enter a strike for the call (default {default_strike_call}): ')
+    strike_put = input(f'Please choose a strike for the put (default 16 delta): ')
+    strike_call = input(f'Please choose a strike for the call (default 16 delta): ')
 
     bid, mid, ask = 4.20, 4.23, 4.25  # placeholder
     print(f'Bid: {bid:.2f}\tMid: {mid:.2f}\tAsk: {ask:.2f}')
@@ -32,39 +39,80 @@ async def strangle(underlying, quantity):
 
     print('Order Review')
     print('============')
-    print('{')
-    for t in ['p', 'c']:
-        print(f'\t{quantity}{t} {underlying} ~{strike_put} #{date}')
-    print('}', f'@{price}')
-    confirm = input('Send order? Y/n ')
+    print('[')
+    print(f'\t{quantity} {underlying} {strike_put}p {expiration}')
+    print(f'\t{quantity} {underlying} {strike_call}c {expiration}')
+    print(']', f'@ {price}')
+
+    if get_confirmation('Send order? Y/n '):
+        pass
     '''
     pass
 
 
-@option.command()
-@click.option('-d', '--delta', type=int, help='Sell the contract at the given delta.', default=16)
-@click.option('-s', '--strike', type=float, help='Sell the contract at the given strike.')
-@click.argument('quantity', type=int)
+@option.command(help='Buy or sell puts with the given parameters.')
+@click.option('-s', '--strike', type=int, help='The chosen strike for the option.')
 @click.argument('underlying', type=str)
-@click.argument('price', type=float)
-async def sell(delta, strike, quantity, underlying, price):
-    """Sell QUANTITY contracts on UNDERLYING.
-    PRICE is the limit price for each individual contract.
+@click.argument('quantity', type=int)
+async def put(underlying: str, quantity: int, strike: Optional[int] = None):
+    sesh = await RenewableTastyAPISession.create()
+    undl = Underlying(underlying)
+    expiration = await choose_expiration(sesh, undl)
 
-    If neither delta nor strike is provided, will default to 16 delta.
-    """
-    strike = 420  # lookup strike based on delta if not provided
-    print(f'Selling {quantity}x {underlying} ~ {strike:.2f} @ ${price:.2f}')
+    #strike = input(f'Please choose a strike for the put (default 16 delta): ')
+
+    option = Option(
+        ticker=underlying,
+        quantity=abs(quantity),
+        expiry=expiration,
+        strike=strike,
+        option_type=OptionType.PUT,
+        underlying_type=UnderlyingType.EQUITY
+    )
+    sub_values = {'Quote': [option.symbol_dxf]}
+    streamer = await DataStreamer.create(sesh)
+    await streamer.add_data_sub(sub_values)
+    async for item in streamer.listen():
+        quote = item.data[0]
+        bid = quote['bidPrice']
+        ask = quote['askPrice']
+        mid = (bid + ask) / 2
+        break
+    await streamer.remove_data_sub(sub_values)
+
+    print(f'Bid: {bid:.2f}\tMid: {mid:.2f}\tAsk: {ask:.2f}')
+    price = input('Please enter a limit price for the entire order (default mid): ')
+    if not price:
+        price = mid
+
+    details = OrderDetails(
+        type=OrderType.LIMIT,
+        price=Decimal(price),
+        price_effect=OrderPriceEffect.CREDIT if quantity < 0 else OrderPriceEffect.DEBIT
+    )
+    order = Order(details)
+    order.add_leg(option)
+
+    accounts = await TradingAccount.get_remote_accounts(sesh)
+    acct = accounts[1]  # TODO: choose account here, bypassed by environment var
+
+    print('Order Review')
+    print('============')
+    print(f'\t{quantity} {underlying} {strike}p {expiration}')
+    print(f'@ {price}')
+
+    if get_confirmation('Send order? Y/n '):
+        res = await acct.execute_order(order, sesh, dry_run=True)
+        print(res)
+
+    await streamer.close()
 
 
 @option.command(help='Fetch and display an options chain.')
-# @click.option('-e', '--expiration', type=str, default=get_tasty_monthly(),
-#              help='The expiration date for the chain. Defaults to the closest monthly to 45 DTE.')
 @click.option('-s', '--strikes', type=int, default=8,
               help='The number of strikes to fetch above and below the spot price.')
 @click.argument('underlying', type=str)
-async def chain(underlying, strikes):
-    expiration = get_tasty_monthly()
+async def chain(underlying: str, strikes: Optional[int] = None):
     sub_values = {'Quote': [underlying]}
 
     sesh = await RenewableTastyAPISession.create()
@@ -81,8 +129,10 @@ async def chain(underlying, strikes):
         break
     await streamer.remove_data_sub(sub_values)
 
+    expiration = await choose_expiration(sesh, undl)
+
     console = Console()
-    table = Table(show_header=True, header_style='bold', title=f'Options chain for {underlying}')
+    table = Table(show_header=True, header_style='bold', title=f'Options chain for {underlying} on {expiration}')
     table.add_column('Delta', width=8, justify='center')
     table.add_column('Bid', style='red', width=8, justify='center')
     table.add_column('Ask', style='red', width=8, justify='center')
@@ -173,5 +223,5 @@ async def chain(underlying, strikes):
         if i == strikes - 1:
             table.add_row('=======', 'ITM v', '=======', '=======', '=======', 'ITM ^', '=======', style='white')
 
-    await streamer.cometd_client.close()
+    await streamer.close()
     console.print(table)

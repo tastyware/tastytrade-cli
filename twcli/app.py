@@ -1,13 +1,14 @@
 import asyncio
+import logging
 import sys
 
 import asyncclick as click
 
-from .future.commands import future
 from .option.commands import option
-from .pairs.commands import pairs
 from .plot.commands import plot
-from .utils import LOGGER, VERSION
+from .utils import VERSION
+
+LOGGER = logging.getLogger(__name__)
 
 
 @click.group()
@@ -21,9 +22,7 @@ def main():
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         LOGGER.debug('Using Windows-specific event loop policy')
 
-    app.add_command(future)
     app.add_command(option)
     app.add_command(plot)
-    app.add_command(pairs)
 
     app(_anyio_backend='asyncio')
