@@ -10,7 +10,7 @@ from dateutil.relativedelta import FR, relativedelta
 from tastyworks.models.session import TastyAPISession
 from tastyworks.models.trading_account import TradingAccount
 
-VERSION = '0.4.0'
+VERSION = '1.0.0'
 ZERO = Decimal(0)
 LOGGER = logging.getLogger(__name__)
 
@@ -77,9 +77,13 @@ def get_tasty_monthly(day: Optional[date] = date.today()) -> date:
 
 
 def get_monthly(day: Optional[date] = date.today()) -> date:
-    day = date.replace(day=1)
+    day = day.replace(day=1)
     day += relativedelta(weeks=2, weekday=FR)
     return day
+
+
+def is_monthly(day: date) -> bool:
+    return day.weekday() == 4 and 15 <= day.day <= 21
 
 
 def get_confirmation(prompt: str) -> bool:
@@ -91,3 +95,30 @@ def get_confirmation(prompt: str) -> bool:
             return True
         if answer[0] == 'n':
             return False
+
+
+async def get_account(sesh: RenewableTastyAPISession) -> TradingAccount:
+    accounts = await TradingAccount.get_remote_accounts(sesh)
+    accounts = [acc for acc in accounts if not acc.is_closed]
+    account = os.getenv('TW_ACC')
+    if account:
+        for acc in accounts:
+            if acc.account_number == account:
+                return acc
+        LOGGER.warning('Environment variable $TW_ACC is set, but doesn\'t appear to exist!')
+
+    for i in range(len(accounts)):
+        if i == 0:
+            print(f'{i + 1}) {accounts[i].account_number} {accounts[i].nickname} (default)')
+        else:
+            print(f'{i + 1}) {accounts[i].account_number} {accounts[i].nickname}')
+    choice = 0
+    while choice not in range(1, len(accounts) + 1):
+        try:
+            raw = input('Please choose an account: ')
+            choice = int(raw)
+        except ValueError:
+            if not raw:
+                return accounts[0]
+
+    return accounts[choice - 1]

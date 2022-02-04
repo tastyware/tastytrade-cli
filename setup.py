@@ -26,7 +26,7 @@ setup(
         'petl>=1.7.4',
         'python-dateutil>=2.8.1',
         'rich>=11.0.0',
-        'tastyworks-api>=4.2.1',
+        'tastyworks-api>=4.2.2',
     ],
     packages=find_packages(exclude=['ez_setup', 'tests*']),
     include_package_data=True,

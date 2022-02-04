@@ -3,7 +3,7 @@ from typing import Optional
 import asyncclick as click
 import petl
 
-from ..utils import RenewableTastyAPISession
+from ..utils import RenewableTastyAPISession, get_account
 from .plot import Portfolio
 
 
@@ -17,7 +17,7 @@ from .plot import Portfolio
 async def plot(netliq: Optional[bool] = False, percentage: Optional[bool] = False, duration: Optional[str] = None):
     sesh = await RenewableTastyAPISession.create()
     # choose an account
-    acc = sesh.accounts[0]  # placeholder
+    acc = await get_account(sesh)
     history = await acc.get_history(sesh)
 
     table = petl.fromdicts(history).cut(

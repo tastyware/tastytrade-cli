@@ -8,12 +8,12 @@ from tastyworks.models.option import Option, OptionType
 from tastyworks.models.option_chain import get_option_chain
 from tastyworks.models.order import (Order, OrderDetails, OrderPriceEffect,
                                      OrderType)
-from tastyworks.models.trading_account import TradingAccount
 from tastyworks.models.underlying import Underlying, UnderlyingType
 from tastyworks.streamer import DataStreamer
 
+from ..utils import (RenewableTastyAPISession, TastyworksCLIError, get_account,
+                     get_confirmation)
 from .option import choose_expiration
-from ..utils import RenewableTastyAPISession, get_tasty_monthly, get_confirmation
 
 
 @click.group(chain=True, help='Buy, sell, and analyze options.')
@@ -21,45 +21,148 @@ async def option():
     pass
 
 
-@option.command(help='Buy or sell strangles with the given parameters.')
+@option.command(help='Buy or sell calls with the given parameters.')
+@click.option('-s', '--strike', type=int, help='The chosen strike for the option.')
+@click.option('-d', '--delta', type=int, help='The chosen delta for the option.')
+@click.option('--all-expirations', is_flag=True, help='Show all expirations, not just monthlies.')
 @click.argument('underlying', type=str)
 @click.argument('quantity', type=int)
-async def strangle(underlying: str, quantity: int):
-    '''
+async def call(underlying: str, quantity: int, strike: Optional[int] = None,
+               all_expirations: Optional[bool] = False, delta: Optional[int] = None):
+    if strike is not None and delta is not None:
+        raise TastyworksCLIError('Must specify either delta or strike, but not both.')
+    elif not strike and not delta:
+        raise TastyworksCLIError('Please specify either delta or strike for the option.')
+    elif abs(delta) > 100:
+        raise TastyworksCLIError('Delta value is too high, -100 <= delta <= 100')
+
     sesh = await RenewableTastyAPISession.create()
     undl = Underlying(underlying)
-    expiration = await choose_expiration(sesh, undl)
+    expiration = await choose_expiration(sesh, undl, all_expirations)
+    streamer = await DataStreamer.create(sesh)
 
-    strike_put = input(f'Please choose a strike for the put (default 16 delta): ')
-    strike_call = input(f'Please choose a strike for the call (default 16 delta): ')
+    if not strike:
+        chain = await get_option_chain(sesh, undl, expiration)
+        dxfeeds = [option.symbol_dxf for option in chain.options if option.option_type == OptionType.CALL]
+        greeks = await streamer.stream('Greeks', dxfeeds)
 
-    bid, mid, ask = 4.20, 4.23, 4.25  # placeholder
-    print(f'Bid: {bid:.2f}\tMid: {mid:.2f}\tAsk: {ask:.2f}')
+        lowest = abs(greeks[0]['delta'] * 100.0 - delta)
+        index = 0
+        for i in range(1, len(greeks)):
+            diff = abs(greeks[i]['delta'] * 100.0 - delta)
+            if diff < lowest:
+                index = i
+                lowest = diff
+        for option in chain.options:
+            if option.symbol_dxf == greeks[index]['eventSymbol']:
+                strike = option.strike
+                break
+
+    option = Option(
+        ticker=underlying,
+        quantity=abs(quantity),
+        expiry=expiration,
+        strike=strike,
+        option_type=OptionType.CALL,
+        underlying_type=UnderlyingType.EQUITY
+    )
+    quote = await streamer.stream('Quote', [option.symbol_dxf])
+    bid = quote[0]['bidPrice']
+    ask = quote[0]['askPrice']
+    mid = (bid + ask) / 2
+
+    await streamer.close()
+
+    console = Console()
+    table = Table(show_header=True, header_style='bold', title_style='bold',
+                  title=f'Quote for {underlying} {strike}C {expiration}')
+    table.add_column('Bid', style='green', width=8, justify='center')
+    table.add_column('Mid', width=8, justify='center')
+    table.add_column('Ask', style='red', width=8, justify='center')
+    table.add_row(f'{bid:.2f}', f'{mid:.2f}', f'{ask:.2f}')
+    console.print(table)
+
     price = input('Please enter a limit price for the entire order (default mid): ')
+    if not price:
+        price = round(mid * abs(quantity), 2)
+    price = Decimal(price)
 
-    print('Order Review')
-    print('============')
-    print('[')
-    print(f'\t{quantity} {underlying} {strike_put}p {expiration}')
-    print(f'\t{quantity} {underlying} {strike_call}c {expiration}')
-    print(']', f'@ {price}')
+    details = OrderDetails(
+        type=OrderType.LIMIT,
+        price=price,
+        price_effect=OrderPriceEffect.CREDIT if quantity < 0 else OrderPriceEffect.DEBIT
+    )
+    order = Order(details)
+    order.add_leg(option)
 
+    acct = await get_account(sesh)
+    details = await acct.get_balance(sesh)
+    nl = Decimal(details['net-liquidating-value'])
+
+    data = await acct.execute_order(order, sesh, dry_run=True)
+    bp = Decimal(data['buying-power-effect']['change-in-buying-power'])
+    percent = bp / nl * Decimal(100)
+    # bp_effect = data['buying-power-effect']['change-in-buying-power-effect']
+    fees = Decimal(data['fee-calculation']['total-fees'])
+
+    table = Table(show_header=True, header_style='bold', title_style='bold', title='Order Review')
+    table.add_column('Quantity', width=8, justify='center')
+    table.add_column('Symbol', width=8, justify='center')
+    table.add_column('Strike', width=8, justify='center')
+    table.add_column('Type', width=8, justify='center')
+    table.add_column('Expiration', width=10, justify='center')
+    table.add_column('Price', width=8, justify='center')
+    table.add_column('BP', width=8, justify='center')
+    table.add_column('% of NL', width=8, justify='center')
+    table.add_column('Fees', width=8, justify='center')
+    table.add_row(f'{quantity}', underlying, f'{strike:.2f}', 'CALL', f'{expiration}', f'${price:.2f}',
+                  f'${bp:.2f}', f'{percent:.2f}%', f'${fees}')
+    console.print(table)
+
+    if data['warnings']:
+        console.print('[bold orange]Warnings:[/bold orange]')
+        for warning in data['warnings']:
+            console.print(f'[i gray]{warning}[/i gray]')
     if get_confirmation('Send order? Y/n '):
-        pass
-    '''
-    pass
+        await acct.execute_order(order, sesh, dry_run=False)
 
 
 @option.command(help='Buy or sell puts with the given parameters.')
 @click.option('-s', '--strike', type=int, help='The chosen strike for the option.')
+@click.option('-d', '--delta', type=int, help='The chosen delta for the option.')
+@click.option('--all-expirations', is_flag=True, help='Show all expirations, not just monthlies.')
 @click.argument('underlying', type=str)
 @click.argument('quantity', type=int)
-async def put(underlying: str, quantity: int, strike: Optional[int] = None):
+async def put(underlying: str, quantity: int, strike: Optional[int] = None,
+              all_expirations: Optional[bool] = False, delta: Optional[int] = None):
+    if strike is not None and delta is not None:
+        raise TastyworksCLIError('Must specify either delta or strike, but not both.')
+    elif not strike and not delta:
+        raise TastyworksCLIError('Please specify either delta or strike for the option.')
+    elif abs(delta) > 100:
+        raise TastyworksCLIError('Delta value is too high, -100 <= delta <= 100')
+
     sesh = await RenewableTastyAPISession.create()
     undl = Underlying(underlying)
-    expiration = await choose_expiration(sesh, undl)
+    expiration = await choose_expiration(sesh, undl, all_expirations)
+    streamer = await DataStreamer.create(sesh)
 
-    #strike = input(f'Please choose a strike for the put (default 16 delta): ')
+    if not strike:
+        chain = await get_option_chain(sesh, undl, expiration)
+        dxfeeds = [option.symbol_dxf for option in chain.options if option.option_type == OptionType.PUT]
+        greeks = await streamer.stream('Greeks', dxfeeds)
+
+        lowest = abs(greeks[0]['delta'] * 100.0 + delta)
+        index = 0
+        for i in range(1, len(greeks)):
+            diff = abs(greeks[i]['delta'] * 100.0 + delta)
+            if diff < lowest:
+                index = i
+                lowest = diff
+        for option in chain.options:
+            if option.symbol_dxf == greeks[index]['eventSymbol']:
+                strike = option.strike
+                break
 
     option = Option(
         ticker=underlying,
@@ -69,43 +172,65 @@ async def put(underlying: str, quantity: int, strike: Optional[int] = None):
         option_type=OptionType.PUT,
         underlying_type=UnderlyingType.EQUITY
     )
-    sub_values = {'Quote': [option.symbol_dxf]}
-    streamer = await DataStreamer.create(sesh)
-    await streamer.add_data_sub(sub_values)
-    async for item in streamer.listen():
-        quote = item.data[0]
-        bid = quote['bidPrice']
-        ask = quote['askPrice']
-        mid = (bid + ask) / 2
-        break
-    await streamer.remove_data_sub(sub_values)
+    quote = await streamer.stream('Quote', [option.symbol_dxf])
+    bid = quote[0]['bidPrice']
+    ask = quote[0]['askPrice']
+    mid = (bid + ask) / 2
 
-    print(f'Bid: {bid:.2f}\tMid: {mid:.2f}\tAsk: {ask:.2f}')
+    await streamer.close()
+
+    console = Console()
+    table = Table(show_header=True, header_style='bold', title_style='bold',
+                  title=f'Quote for {underlying} {strike}P {expiration}')
+    table.add_column('Bid', style='green', width=8, justify='center')
+    table.add_column('Mid', width=8, justify='center')
+    table.add_column('Ask', style='red', width=8, justify='center')
+    table.add_row(f'{bid:.2f}', f'{mid:.2f}', f'{ask:.2f}')
+    console.print(table)
+
     price = input('Please enter a limit price for the entire order (default mid): ')
     if not price:
-        price = mid
+        price = round(mid * abs(quantity), 2)
+    price = Decimal(price)
 
     details = OrderDetails(
         type=OrderType.LIMIT,
-        price=Decimal(price),
+        price=price,
         price_effect=OrderPriceEffect.CREDIT if quantity < 0 else OrderPriceEffect.DEBIT
     )
     order = Order(details)
     order.add_leg(option)
 
-    accounts = await TradingAccount.get_remote_accounts(sesh)
-    acct = accounts[1]  # TODO: choose account here, bypassed by environment var
+    acct = await get_account(sesh)
+    details = await acct.get_balance(sesh)
+    nl = Decimal(details['net-liquidating-value'])
 
-    print('Order Review')
-    print('============')
-    print(f'\t{quantity} {underlying} {strike}p {expiration}')
-    print(f'@ {price}')
+    data = await acct.execute_order(order, sesh, dry_run=True)
+    bp = Decimal(data['buying-power-effect']['change-in-buying-power'])
+    percent = bp / nl * Decimal(100)
+    # bp_effect = data['buying-power-effect']['change-in-buying-power-effect']
+    fees = Decimal(data['fee-calculation']['total-fees'])
 
+    table = Table(show_header=True, header_style='bold', title_style='bold', title='Order Review')
+    table.add_column('Quantity', width=8, justify='center')
+    table.add_column('Symbol', width=8, justify='center')
+    table.add_column('Strike', width=8, justify='center')
+    table.add_column('Type', width=8, justify='center')
+    table.add_column('Expiration', width=10, justify='center')
+    table.add_column('Price', width=8, justify='center')
+    table.add_column('BP', width=8, justify='center')
+    table.add_column('% of NL', width=8, justify='center')
+    table.add_column('Fees', width=8, justify='center')
+    table.add_row(f'{quantity}', underlying, f'{strike:.2f}', 'PUT', f'{expiration}', f'${price:.2f}',
+                  f'${bp:.2f}', f'{percent:.2f}%', f'${fees}')
+    console.print(table)
+
+    if data['warnings']:
+        console.print('[bold orange]Warnings:[/bold orange]')
+        for warning in data['warnings']:
+            console.print(f'[i gray]{warning}[/i gray]')
     if get_confirmation('Send order? Y/n '):
-        res = await acct.execute_order(order, sesh, dry_run=True)
-        print(res)
-
-    await streamer.close()
+        await acct.execute_order(order, sesh, dry_run=False)
 
 
 @option.command(help='Fetch and display an options chain.')
@@ -113,26 +238,21 @@ async def put(underlying: str, quantity: int, strike: Optional[int] = None):
               help='The number of strikes to fetch above and below the spot price.')
 @click.argument('underlying', type=str)
 async def chain(underlying: str, strikes: Optional[int] = None):
-    sub_values = {'Quote': [underlying]}
-
     sesh = await RenewableTastyAPISession.create()
     undl = Underlying(underlying)
 
     strike_price = 0
     streamer = await DataStreamer.create(sesh)
-    await streamer.add_data_sub(sub_values)
-    async for item in streamer.listen():
-        quote = item.data[0]
-        bid = quote['bidPrice']
-        ask = quote['askPrice']
-        strike_price = (bid + ask) / 2
-        break
-    await streamer.remove_data_sub(sub_values)
+    quote = await streamer.stream('Quote', [underlying])
+    bid = quote[0]['bidPrice']
+    ask = quote[0]['askPrice']
+    strike_price = (bid + ask) / 2
 
     expiration = await choose_expiration(sesh, undl)
 
     console = Console()
-    table = Table(show_header=True, header_style='bold', title=f'Options chain for {underlying} on {expiration}')
+    table = Table(show_header=True, header_style='bold', title_style='bold',
+                  title=f'Options chain for {underlying} on {expiration}')
     table.add_column('Delta', width=8, justify='center')
     table.add_column('Bid', style='red', width=8, justify='center')
     table.add_column('Ask', style='red', width=8, justify='center')
@@ -168,17 +288,8 @@ async def chain(underlying: str, strikes: Optional[int] = None):
             puts_to_fetch.append(put)
 
     dxfeeds = [call.symbol_dxf for call in calls_to_fetch] + [put.symbol_dxf for put in puts_to_fetch]
-    options_sub_values = {
-        'Quote': dxfeeds,
-        'Greeks': dxfeeds
-    }
-    await streamer.add_data_sub(options_sub_values)
-    data = []
-    async for item in streamer.listen():
-        data.append(item.data)
-        if len(data) == 2:
-            break
-    await streamer.remove_data_sub(options_sub_values)
+    quotes = await streamer.stream('Quote', dxfeeds)
+    greeks = await streamer.stream('Greeks', dxfeeds)
 
     for i in range(len(calls_to_fetch)):
         call_dxf = calls_to_fetch[i].symbol_dxf
@@ -190,27 +301,25 @@ async def chain(underlying: str, strikes: Optional[int] = None):
         call_bid = 0
         call_ask = 0
         call_delta = 0
-        for item in data[0]:
+        for item in quotes:
             if item['eventSymbol'] == put_dxf:
                 put_bid = item['bidPrice']
                 put_ask = item['askPrice']
                 break
-        for item in data[1]:
+        for item in greeks:
             if item['eventSymbol'] == put_dxf:
                 put_delta = int(item['delta'] * 100)
                 break
-        for item in data[0]:
+        for item in quotes:
             if item['eventSymbol'] == call_dxf:
                 call_bid = item['bidPrice']
                 call_ask = item['askPrice']
                 break
-        for item in data[1]:
+        for item in greeks:
             if item['eventSymbol'] == call_dxf:
                 call_delta = int(item['delta'] * 100)
                 break
 
-        if call_bid == 0.0:
-            print(call_dxf, data[0])
         table.add_row(
             f'{put_delta:g}',
             f'{put_bid:.2f}',
