@@ -10,7 +10,7 @@ from dateutil.relativedelta import FR, relativedelta
 from tastyworks.models.session import TastyAPISession
 from tastyworks.models.trading_account import TradingAccount
 
-VERSION = '1.0.0'
+VERSION = '1.0.3'
 ZERO = Decimal(0)
 LOGGER = logging.getLogger(__name__)
 

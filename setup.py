@@ -18,6 +18,7 @@ setup(
     url='https://github.com/Graeme22/tastyworks-cli/',
     license='MIT',
     install_requires=[
+        'anyio>=3.5.0',
         'asyncclick>=8.0.3.2',
         'matplotlib>=3.5.1',
         'pandas>=1.4.0',

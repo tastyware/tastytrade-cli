@@ -1,3 +1,4 @@
+anyio==3.5.0
 asyncclick==8.0.3.2
 flake8==4.0.1
 isort==5.10.1
