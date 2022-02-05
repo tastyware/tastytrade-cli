@@ -1,6 +1,9 @@
 import getpass
 import logging
 import os
+import shutil
+import sys
+from configparser import ConfigParser
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
@@ -10,11 +13,13 @@ from dateutil.relativedelta import FR, relativedelta
 from tastyworks.models.session import TastyAPISession
 from tastyworks.models.trading_account import TradingAccount
 
-VERSION = '1.0.3'
+VERSION = '1.0.4'
 ZERO = Decimal(0)
 LOGGER = logging.getLogger(__name__)
 
-_TOKEN_PATH = '.tastyworks/twcli/sesh'
+_DEFAULT_CONFIG_PATH = 'etc/twcli.cfg'
+_CUSTOM_CONFIG_PATH = '.config/twcli/twcli.cfg'
+_TOKEN_PATH = '.config/twcli/.session'
 
 
 class TastyworksCLIError(Exception):
@@ -23,13 +28,25 @@ class TastyworksCLIError(Exception):
 
 class RenewableTastyAPISession(TastyAPISession):
     def __init__(self, API_url=None):
-        path = os.path.join(os.path.expanduser('~'), _TOKEN_PATH)
         self.logged_in = False
         self.accounts = None
 
+        token_path = os.path.join(os.path.expanduser('~'), _TOKEN_PATH)
+        custom_path = os.path.join(os.path.expanduser('~'), _CUSTOM_CONFIG_PATH)
+        default_path = os.path.join(sys.prefix, _DEFAULT_CONFIG_PATH)
+
+        # load config
+        self.config = ConfigParser()
+        if not os.path.exists(custom_path):
+            # copy default config to user home dir
+            os.makedirs(os.path.dirname(custom_path), exist_ok=True)
+            shutil.copyfile(default_path, custom_path)
+            self.config.read(default_path)
+        self.config.read(custom_path)
+
         # try to load token
-        if os.path.exists(path):
-            with open(path) as f:
+        if os.path.exists(token_path):
+            with open(token_path) as f:
                 self.session_token = f.read().strip()
 
             self.API_url = API_url if API_url else 'https://api.tastyworks.com'
@@ -44,17 +61,17 @@ class RenewableTastyAPISession(TastyAPISession):
             TastyAPISession.__init__(self, username, password)
 
             # write session token to cache
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, 'w') as f:
+            os.makedirs(os.path.dirname(token_path), exist_ok=True)
+            with open(token_path, 'w') as f:
                 f.write(self.session_token)
         else:
             LOGGER.debug('Logged in with cached session token.')
 
     def _get_credentials(self):
-        username = os.getenv('TW_USER')
+        username = self.config['general'].get('username', None)
         if not username:
             username = getpass.getpass('Username: ')
-        password = os.getenv('TW_PASS')
+        password = self.config['general'].get('password', None)
         if not password:
             password = getpass.getpass('Password: ')
 
@@ -98,27 +115,25 @@ def get_confirmation(prompt: str) -> bool:
 
 
 async def get_account(sesh: RenewableTastyAPISession) -> TradingAccount:
-    accounts = await TradingAccount.get_remote_accounts(sesh)
-    accounts = [acc for acc in accounts if not acc.is_closed]
     account = os.getenv('TW_ACC')
     if account:
-        for acc in accounts:
+        for acc in sesh.accounts:
             if acc.account_number == account:
                 return acc
-        LOGGER.warning('Environment variable $TW_ACC is set, but doesn\'t appear to exist!')
+        LOGGER.warning('Environment variable $TW_ACC is set, but the account doesn\'t appear to exist!')
 
-    for i in range(len(accounts)):
+    for i in range(len(sesh.accounts)):
         if i == 0:
-            print(f'{i + 1}) {accounts[i].account_number} {accounts[i].nickname} (default)')
+            print(f'{i + 1}) {sesh.accounts[i].account_number} {sesh.accounts[i].nickname} (default)')
         else:
-            print(f'{i + 1}) {accounts[i].account_number} {accounts[i].nickname}')
+            print(f'{i + 1}) {sesh.accounts[i].account_number} {sesh.accounts[i].nickname}')
     choice = 0
-    while choice not in range(1, len(accounts) + 1):
+    while choice not in range(1, len(sesh.accounts) + 1):
         try:
             raw = input('Please choose an account: ')
             choice = int(raw)
         except ValueError:
             if not raw:
-                return accounts[0]
+                return sesh.accounts[0]
 
-    return accounts[choice - 1]
+    return sesh.accounts[choice - 1]

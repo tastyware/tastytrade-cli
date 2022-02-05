@@ -228,16 +228,18 @@ async def put(underlying: str, quantity: int, strike: Optional[int] = None,
     if data['warnings']:
         console.print('[bold orange]Warnings:[/bold orange]')
         for warning in data['warnings']:
-            console.print(f'[i gray]{warning}[/i gray]')
+            message = warning['message']
+            console.print(f'[orange]{message}')
     if get_confirmation('Send order? Y/n '):
         await acct.execute_order(order, sesh, dry_run=False)
 
 
 @option.command(help='Fetch and display an options chain.')
+@click.option('--all-expirations', is_flag=True, help='Show all expirations, not just monthlies.')
 @click.option('-s', '--strikes', type=int, default=8,
               help='The number of strikes to fetch above and below the spot price.')
 @click.argument('underlying', type=str)
-async def chain(underlying: str, strikes: Optional[int] = None):
+async def chain(underlying: str, strikes: Optional[int] = None, all_expirations: Optional[bool] = False):
     sesh = await RenewableTastyAPISession.create()
     undl = Underlying(underlying)
 
@@ -248,7 +250,7 @@ async def chain(underlying: str, strikes: Optional[int] = None):
     ask = quote[0]['askPrice']
     strike_price = (bid + ask) / 2
 
-    expiration = await choose_expiration(sesh, undl)
+    expiration = await choose_expiration(sesh, undl, all_expirations)
 
     console = Console()
     table = Table(show_header=True, header_style='bold', title_style='bold',

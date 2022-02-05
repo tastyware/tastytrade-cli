@@ -1,3 +1,5 @@
+import os
+
 from setuptools import find_packages, setup
 
 from twcli.utils import VERSION
@@ -28,6 +30,7 @@ setup(
         'QuantLib>=1.25',
         'tastyworks-api>=4.2.2',
     ],
+    data_files = [('etc', ['etc/twcli.cfg'])],
     packages=find_packages(exclude=['ez_setup', 'tests*']),
     include_package_data=True,
     entry_points="""
