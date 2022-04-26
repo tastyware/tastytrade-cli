@@ -115,12 +115,12 @@ def get_confirmation(prompt: str) -> bool:
 
 
 async def get_account(sesh: RenewableTastyAPISession) -> TradingAccount:
-    account = os.getenv('TW_ACC')
+    account = sesh.config['general'].get('default-account', None)
     if account:
         for acc in sesh.accounts:
             if acc.account_number == account:
                 return acc
-        LOGGER.warning('Environment variable $TW_ACC is set, but the account doesn\'t appear to exist!')
+        LOGGER.warning('Default account is set, but the account doesn\'t appear to exist!')
 
     for i in range(len(sesh.accounts)):
         if i == 0:

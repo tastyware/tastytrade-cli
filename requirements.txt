@@ -1,3 +1,4 @@
+git+https://github.com/Graeme22/aiocometd@0.4.5.3#egg=aiocometd
 anyio==3.5.0
 asyncclick==8.0.3.2
 flake8==4.0.1
