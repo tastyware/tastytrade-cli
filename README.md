@@ -1,3 +1,7 @@
+[![PyPI version](https://badge.fury.io/py/tastyworks-cli.svg)](https://badge.fury.io/py/tastyworks-cli)
+[![Downloads](https://pepy.tech/badge/tastyworks-cli)](https://pepy.tech/project/tastyworks-cli)
+[![Docs](https://readthedocs.org/projects/tastyworks-cli/badge/?version=latest)](https://tastyworks-cli.readthedocs.io/en/latest/?badge=latest)
+
 # tastyworks-cli
 
 An easy-to-use command line interface for Tastyworks!

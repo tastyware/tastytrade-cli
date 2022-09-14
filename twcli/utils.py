@@ -23,6 +23,7 @@ _TOKEN_PATH = '.config/twcli/.session'
 
 
 class TastyworksCLIError(Exception):
+    """Raised for invalid inputs."""
     pass
 
 

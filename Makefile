@@ -11,3 +11,6 @@ test:
 	isort --check --diff twcli/ tests/
 	flake8 --count --show-source --statistics --ignore=E501 twcli/ tests/
 	python -m pytest --cov=twcli --cov-report=term-missing tests/
+
+docs:
+	cd docs; make html
