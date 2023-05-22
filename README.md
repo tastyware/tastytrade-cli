@@ -2,6 +2,8 @@
 
 An easy-to-use command line interface for Tastyworks!
 
+![Captura de pantalla 2022-01-25 232435](https://github.com/tastyware/tastytrade-cli/assets/4185684/bfc71219-ff17-442d-962b-8942ce62bb1e)
+
 ## Installation
 
 ```
