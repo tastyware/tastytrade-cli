@@ -7,11 +7,13 @@ from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
 from tastytrade.dxfeed import EventType, Greeks, Quote
-from tastytrade.instruments import NestedOptionChain, Option, OptionType
-from tastytrade.order import NewOrder, PriceEffect, OrderType, OrderTimeInForce, OrderAction
+from tastytrade.instruments import NestedOptionChain, Option
+from tastytrade.order import (NewOrder, OrderAction, OrderTimeInForce,
+                              OrderType, PriceEffect)
 from tastytrade.utils import get_tasty_monthly
 
-from ttcli.utils import RenewableSession, is_monthly, get_confirmation, print_error, print_warning
+from ttcli.utils import (RenewableSession, get_confirmation, is_monthly,
+                         print_error, print_warning)
 
 
 def choose_expiration(
@@ -166,13 +168,14 @@ async def call(symbol: str, quantity: int, strike: Optional[int] = None,
 
 
 @option.command(help='Buy or sell puts with the given parameters.')
-@click.option('-s', '--strike', type=int, help='The chosen strike for the option.')
+@click.option('-s', '--strike', type=Decimal, help='The chosen strike for the option.')
 @click.option('-d', '--delta', type=int, help='The chosen delta for the option.')
+@click.option('-w', '--width', type=int, help='Turns the order into a spread with the given width.')
 @click.option('--gtc', is_flag=True, help='Place a GTC order instead of a day order.')
 @click.option('--weeklies', is_flag=True, help='Show all expirations, not just monthlies.')
 @click.argument('symbol', type=str)
 @click.argument('quantity', type=int)
-async def put(symbol: str, quantity: int, strike: Optional[int] = None,
+async def put(symbol: str, quantity: int, strike: Optional[int] = None, width: Optional[int] = None,
               gtc: bool = False, weeklies: bool = False, delta: Optional[int] = None):
     if strike is not None and delta is not None:
         print_error('Must specify either delta or strike, but not both.')
@@ -199,7 +202,7 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None,
             lowest = 100
             selected = None
             for g in greeks:
-                diff = abs(g.delta * Decimal(100) - delta)
+                diff = abs(g.delta * Decimal(100) + delta)
                 if diff < lowest:
                     selected = g
                     lowest = diff
@@ -207,17 +210,31 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None,
             strike = next(s.strike_price for s in subchain.strikes
                           if s.put_streamer_symbol == selected.eventSymbol)
 
-        await streamer.subscribe(EventType.QUOTE, [selected.eventSymbol])
-        quote = await streamer.get_event(EventType.QUOTE)
-        mid = (quote.bidPrice + quote.askPrice) / Decimal(2)
+        if width:
+            spread_strike = next(s for s in subchain.strikes if s.strike_price == strike - width)
+            await streamer.subscribe(EventType.QUOTE, [selected.eventSymbol, spread_strike.put_streamer_symbol])
+            quote_dict = await listen_quotes(2, streamer)
+            bid = quote_dict[selected.eventSymbol].bidPrice - quote_dict[spread_strike.put_streamer_symbol].askPrice
+            ask = quote_dict[selected.eventSymbol].askPrice - quote_dict[spread_strike.put_streamer_symbol].bidPrice
+            mid = (bid + ask) / Decimal(2)
+        else:
+            await streamer.subscribe(EventType.QUOTE, [selected.eventSymbol])
+            quote = await streamer.get_event(EventType.QUOTE)
+            bid = quote.bidPrice
+            ask = quote.askPrice
+            mid = (bid + ask) / Decimal(2)
 
         console = Console()
-        table = Table(show_header=True, header_style='bold', title_style='bold',
-                    title=f'Quote for {symbol} {strike}P {expiration}')
+        if width:
+            table = Table(show_header=True, header_style='bold', title_style='bold',
+                          title=f'Quote for {symbol} put spread {expiration}')
+        else:
+            table = Table(show_header=True, header_style='bold', title_style='bold',
+                          title=f'Quote for {symbol} {strike}P {expiration}')
         table.add_column('Bid', style='green', width=8, justify='center')
         table.add_column('Mid', width=8, justify='center')
         table.add_column('Ask', style='red', width=8, justify='center')
-        table.add_row(f'{quote.bidPrice:.2f}', f'{mid:.2f}', f'{quote.askPrice:.2f}')
+        table.add_row(f'{bid:.2f}', f'{mid:.2f}', f'{ask:.2f}')
         console.print(table)
 
         price = input('Please enter a limit price per quantity (default mid): ')
@@ -225,18 +242,33 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None,
             price = round(mid, 2)
         price = Decimal(price)
 
-        put = Option.get_option(sesh, next(s.put for s in subchain.strikes if s.strike_price == strike))
+        short_symbol = next(s.put for s in subchain.strikes if s.strike_price == strike)
+        if width:
+            res = Option.get_options(sesh, [short_symbol, spread_strike.put])
+            res.sort(key=lambda x: x.strike_price, reverse=True)
+            legs = [
+                res[0].build_leg(abs(quantity), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN),
+                res[1].build_leg(abs(quantity), OrderAction.BUY_TO_OPEN if quantity < 0 else OrderAction.SELL_TO_OPEN)
+            ]
+        else:
+            put = Option.get_option(sesh, short_symbol)
+            legs = [put.build_leg(abs(quantity), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN)]
         order = NewOrder(
             time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
             order_type=OrderType.LIMIT,
-            legs=[put.build_leg(abs(quantity), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN)],
+            legs=legs,
             price=price,
             price_effect=PriceEffect.CREDIT if quantity < 0 else PriceEffect.DEBIT
         )
         acc = sesh.get_account()
-        nl = acc.get_balances(sesh).net_liquidating_value
 
         data = acc.place_order(sesh, order, dry_run=True)
+        if data.errors:
+            for error in data.errors:
+                print_error(error.message)
+            return
+
+        nl = acc.get_balances(sesh).net_liquidating_value
         bp = data.buying_power_effect.change_in_buying_power
         percent = bp / nl * Decimal(100)
         fees = data.fee_calculation.total_fees
@@ -251,8 +283,11 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None,
         table.add_column('BP', width=8, justify='center')
         table.add_column('% of NL', width=8, justify='center')
         table.add_column('Fees', width=8, justify='center')
-        table.add_row(f'{quantity}', symbol, f'${strike:.2f}', 'PUT', f'{expiration}', f'${price:.2f}',
+        table.add_row(f'{quantity:+}', symbol, f'${strike:.2f}', 'PUT', f'{expiration}', f'${price:.2f}',
                       f'${bp:.2f}', f'{percent:.2f}%', f'${fees:.2f}')
+        if width:
+            table.add_row(f'{-quantity:+}', symbol, f'${spread_strike.strike_price:.2f}',
+                          'PUT', f'{expiration}', '-', '-', '-', '-')
         console.print(table)
 
         if data.warnings:
@@ -282,14 +317,14 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
 
         console = Console()
         table = Table(show_header=True, header_style='bold', title_style='bold',
-                      title=f'Options chain for {symbol} on {expiration}')
-        table.add_column('Delta', width=8, justify='center')
-        table.add_column('Bid', style='red', width=8, justify='center')
+                      title=f'Options chain for {symbol} expiring {expiration}')
+        table.add_column(u'Call \u03B4', width=8, justify='center')
+        table.add_column('Bid', style='green', width=8, justify='center')
         table.add_column('Ask', style='red', width=8, justify='center')
         table.add_column('Strike', width=8, justify='center')
         table.add_column('Bid', style='green', width=8, justify='center')
-        table.add_column('Ask', style='green', width=8, justify='center')
-        table.add_column('Delta', width=8, justify='center')
+        table.add_column('Ask', style='red', width=8, justify='center')
+        table.add_column(u'Put \u03B4', width=8, justify='center')
 
         if strikes * 2 < len(subchain.strikes):
             mid_index = 0
@@ -317,16 +352,16 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
             call_delta = int(greeks_dict[strike.call_streamer_symbol].delta * 100)
 
             table.add_row(
-                f'{put_delta:g}',
-                f'{put_bid:.2f}',
-                f'{put_ask:.2f}',
-                f'{strike.strike_price:.2f}',
+                f'{call_delta:g}',
                 f'{call_bid:.2f}',
                 f'{call_ask:.2f}',
-                f'{call_delta:g}'
+                f'{strike.strike_price:.2f}',
+                f'{put_bid:.2f}',
+                f'{put_ask:.2f}',
+                f'{put_delta:g}'
             )
             if i == strikes - 1:
-                table.add_row('=======', 'ITM v', '=======', '=======',
-                              '=======', 'ITM ^', '=======', style='white')
+                table.add_row('=======', 'ITM ^', '=======', '=======',
+                              '=======', 'ITM v', '=======', style='white')
 
         console.print(table)
