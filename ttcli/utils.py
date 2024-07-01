@@ -7,13 +7,18 @@ import sys
 from configparser import ConfigParser
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
-from rich import print
+import requests
+from rich import print as rich_print
 from tastytrade import Account, ProductionSession
+from tastytrade.order import NewOrder, PlacedOrderResponse
 
 logger = logging.getLogger(__name__)
 VERSION = '2.0'
 ZERO = Decimal(0)
+
+CONTEXT_SETTINGS = {'help_option_names': ['-h', '--help']}
 
 CUSTOM_CONFIG_PATH = '.config/ttcli/ttcli.cfg'
 DEFAULT_CONFIG_PATH = 'etc/ttcli.cfg'
@@ -21,11 +26,37 @@ TOKEN_PATH = '.config/ttcli/.session'
 
 
 def print_error(msg: str):
-    print(f'[bold red]Error: {msg}[/bold red]')
+    rich_print(f'[bold red]Error: {msg}[/bold red]')
 
 
 def print_warning(msg: str):
-    print(f'[light_coral]Warning: {msg}[/light_coral]')
+    rich_print(f'[light_coral]Warning: {msg}[/light_coral]')
+
+
+def test_order_handle_errors(
+    account: Account,
+    session: 'RenewableSession',
+    order: NewOrder
+) -> Optional[PlacedOrderResponse]:
+    url = f'{session.base_url}/accounts/{account.account_number}/orders/dry-run'
+    json = order.model_dump_json(exclude_none=True, by_alias=True)
+
+    response = requests.post(url, headers=session.headers, data=json)
+    # modified to use our error handling
+    if response.status_code // 100 != 2:
+        content = response.json()['error']
+        print_error(f"{content['message']}")
+        errors = content.get('errors')
+        if errors is not None:
+            for error in errors:
+                if "code" in error:
+                    print_error(f"{error['message']}")
+                else:
+                    print_error(f"{error['reason']}")
+        return None
+    else:
+        data = response.json()['data']
+        return PlacedOrderResponse(**data)
 
 
 class RenewableSession(ProductionSession):
@@ -69,11 +100,11 @@ class RenewableSession(ProductionSession):
 
     def _get_credentials(self):
         username = (self.config['general'].get('username') or
-                    os.getenv('TTCLI_USERNAME'))
+                    os.getenv('TT_USERNAME'))
         if not username:
             username = getpass.getpass('Username: ')
         password = (self.config['general'].get('password') or
-                    os.getenv('TTCLI_PASSWORD'))
+                    os.getenv('TT_PASSWORD'))
         if not password:
             password = getpass.getpass('Password: ')
 

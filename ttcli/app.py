@@ -4,10 +4,10 @@ import sys
 import asyncclick as click
 
 from ttcli.option import option
-from ttcli.utils import VERSION, logger
+from ttcli.utils import CONTEXT_SETTINGS, VERSION, logger
 
 
-@click.group()
+@click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option(VERSION)
 async def app():
     pass
