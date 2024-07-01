@@ -65,15 +65,6 @@ class RenewableSession(ProductionSession):
         default_path = os.path.join(sys.prefix, DEFAULT_CONFIG_PATH)
         token_path = os.path.join(os.path.expanduser('~'), TOKEN_PATH)
 
-        # load config
-        self.config = ConfigParser()
-        if not os.path.exists(custom_path):
-            # copy default config to user home dir
-            os.makedirs(os.path.dirname(custom_path), exist_ok=True)
-            shutil.copyfile(default_path, custom_path)
-            self.config.read(default_path)
-        self.config.read(custom_path)
-
         logged_in = False
         # try to load token
         if os.path.exists(token_path):
@@ -82,6 +73,15 @@ class RenewableSession(ProductionSession):
 
             # make sure token hasn't expired
             logged_in = self.validate()
+
+        # load config
+        self.config = ConfigParser()
+        if not os.path.exists(custom_path):
+            # copy default config to user home dir
+            os.makedirs(os.path.dirname(custom_path), exist_ok=True)
+            shutil.copyfile(default_path, custom_path)
+            self.config.read(default_path)
+        self.config.read(custom_path)
 
         if not logged_in:
             # either the token expired or doesn't exist
@@ -99,12 +99,14 @@ class RenewableSession(ProductionSession):
             logger.debug('Logged in with cached session.')
 
     def _get_credentials(self):
-        username = (self.config['general'].get('username') or
-                    os.getenv('TT_USERNAME'))
+        username = os.getenv('TT_USERNAME')
+        password = os.getenv('TT_PASSWORD')
+        if self.config.has_section('general'):
+            username = username or self.config['general'].get('username')
+            password = password or self.config['general'].get('password')
+
         if not username:
             username = getpass.getpass('Username: ')
-        password = (self.config['general'].get('password') or
-                    os.getenv('TT_PASSWORD'))
         if not password:
             password = getpass.getpass('Password: ')
 

@@ -4,6 +4,7 @@ import sys
 import asyncclick as click
 
 from ttcli.option import option
+from ttcli.portfolio import portfolio
 from ttcli.utils import CONTEXT_SETTINGS, VERSION, logger
 
 
@@ -19,5 +20,6 @@ def main():
         logger.debug('Using Windows-specific event loop policy')
 
     app.add_command(option)
+    app.add_command(portfolio)
 
     app(_anyio_backend='asyncio')

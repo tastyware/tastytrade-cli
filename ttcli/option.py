@@ -65,7 +65,29 @@ async def listen_greeks(
             return greeks_dict
 
 
-@click.group(chain=True, help='Buy, sell, and analyze options.')
+async def listen_summaries(
+    n_summaries: int,
+    streamer: DXLinkStreamer
+) -> dict[str, Quote]:
+    summary_dict = {}
+    async for summary in streamer.listen(EventType.SUMMARY):
+        summary_dict[summary.eventSymbol] = summary
+        if len(summary_dict) == n_summaries:
+            return summary_dict
+
+
+async def listen_trades(
+    n_trades: int,
+    streamer: DXLinkStreamer
+) -> dict[str, Quote]:
+    trade_dict = {}
+    async for trade in streamer.listen(EventType.TRADE):
+        trade_dict[trade.eventSymbol] = trade
+        if len(trade_dict) == n_trades:
+            return trade_dict
+
+
+@click.group(help='Buy, sell, and analyze options.')
 async def option():
     pass
 
@@ -194,6 +216,9 @@ async def call(symbol: str, quantity: int, strike: Optional[Decimal] = None, wid
         if data.warnings:
             for warning in data.warnings:
                 print_warning(warning.message)
+        warn_percent = sesh.config.getint('order', 'bp-warn-above-percent', fallback=None)
+        if warn_percent and percent > warn_percent:
+            print_warning(f'Buying power usage is above target of {warn_percent}%!')
         if get_confirmation('Send order? Y/n '):
             acc.place_order(sesh, order, dry_run=False)
 
@@ -322,6 +347,9 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None, width: O
         if data.warnings:
             for warning in data.warnings:
                 print_warning(warning.message)
+        warn_percent = sesh.config.getint('order', 'bp-warn-above-percent', fallback=None)
+        if warn_percent and percent > warn_percent:
+            print_warning(f'Buying power usage is above target of {warn_percent}%!')
         if get_confirmation('Send order? Y/n '):
             acc.place_order(sesh, order, dry_run=False)
 
@@ -527,6 +555,9 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
         if data.warnings:
             for warning in data.warnings:
                 print_warning(warning.message)
+        warn_percent = sesh.config.getint('order', 'bp-warn-above-percent', fallback=None)
+        if warn_percent and percent > warn_percent:
+            print_warning(f'Buying power usage is above target of {warn_percent}%!')
         if get_confirmation('Send order? Y/n '):
             acc.place_order(sesh, order, dry_run=False)
 
@@ -539,7 +570,6 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
 @click.argument('symbol', type=str)
 async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
     sesh = RenewableSession()
-    strike_price = None
     async with DXLinkStreamer(sesh) as streamer:
         await streamer.subscribe(EventType.QUOTE, [symbol])
         quote = await streamer.get_event(EventType.QUOTE)
@@ -552,13 +582,32 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
         console = Console()
         table = Table(show_header=True, header_style='bold', title_style='bold',
                       title=f'Options chain for {symbol} expiring {expiration}')
-        table.add_column(u'Call \u0394', width=8, justify='center')
+
+        show_delta = sesh.config.getboolean('option', 'chain-show-delta', fallback=True)
+        show_theta = sesh.config.getboolean('option', 'chain-show-theta', fallback=False)
+        show_oi = sesh.config.getboolean('option', 'chain-show-open-interest', fallback=False)
+        show_volume = sesh.config.getboolean('option', 'chain-show-volume', fallback=False)
+        if show_volume:
+            table.add_column(u'Volume', width=8, justify='right')
+        if show_oi:
+            table.add_column(u'Open Int', width=8, justify='right')
+        if show_theta:
+            table.add_column(u'Call \u03B8', width=6, justify='center')
+        if show_delta:
+            table.add_column(u'Call \u0394', width=6, justify='center')
         table.add_column('Bid', style='green', width=8, justify='center')
         table.add_column('Ask', style='red', width=8, justify='center')
         table.add_column('Strike', width=8, justify='center')
         table.add_column('Bid', style='green', width=8, justify='center')
         table.add_column('Ask', style='red', width=8, justify='center')
-        table.add_column(u'Put \u0394', width=8, justify='center')
+        if show_delta:
+            table.add_column(u'Put \u0394', width=6, justify='center')
+        if show_theta:
+            table.add_column(u'Put \u03B8', width=6, justify='center')
+        if show_oi:
+            table.add_column(u'Open Int', width=8, justify='right')
+        if show_volume:
+            table.add_column(u'Volume', width=8, justify='right')
 
         if strikes * 2 < len(subchain.strikes):
             mid_index = 0
@@ -572,30 +621,49 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
                    [s.put_streamer_symbol for s in all_strikes])
         await streamer.subscribe(EventType.QUOTE, dxfeeds)
         await streamer.subscribe(EventType.GREEKS, dxfeeds)
+        if show_oi:
+            await streamer.subscribe(EventType.SUMMARY, dxfeeds)
+        if show_volume:
+            await streamer.subscribe(EventType.TRADE, dxfeeds)
 
         greeks_dict = await listen_greeks(len(dxfeeds), streamer)
         # take into account the symbol we subscribed to
         quote_dict = await listen_quotes(len(dxfeeds), streamer, skip=symbol)
+        if show_oi:
+            summary_dict = await listen_summaries(len(dxfeeds), streamer)
+        if show_volume:
+            trade_dict = await listen_trades(len(dxfeeds), streamer)
 
         for i, strike in enumerate(all_strikes):
             put_bid = quote_dict[strike.put_streamer_symbol].bidPrice
             put_ask = quote_dict[strike.put_streamer_symbol].askPrice
-            put_delta = int(greeks_dict[strike.put_streamer_symbol].delta * 100)
             call_bid = quote_dict[strike.call_streamer_symbol].bidPrice
             call_ask = quote_dict[strike.call_streamer_symbol].askPrice
-            call_delta = int(greeks_dict[strike.call_streamer_symbol].delta * 100)
-
-            table.add_row(
-                f'{call_delta:g}',
+            row = [
                 f'{call_bid:.2f}',
                 f'{call_ask:.2f}',
                 f'{strike.strike_price:.2f}',
                 f'{put_bid:.2f}',
-                f'{put_ask:.2f}',
-                f'{put_delta:g}'
-            )
-            if i == strikes - 1:
-                table.add_row('=======', u'\u25B2 ITM \u25B2', '=======', '=======',
-                              '=======', u'\u25BC ITM \u25BC', '=======', style='white')
+                f'{put_ask:.2f}'
+            ]
+            prepend = []
+            if show_delta:
+                put_delta = int(greeks_dict[strike.put_streamer_symbol].delta * 100)
+                call_delta = int(greeks_dict[strike.call_streamer_symbol].delta * 100)
+                prepend.append(f'{call_delta:g}')
+                row.append(f'{put_delta:g}')
+                
+            if show_theta:
+                prepend.append(f'{abs(greeks_dict[strike.put_streamer_symbol].theta):.2f}')
+                row.append(f'{abs(greeks_dict[strike.call_streamer_symbol].theta):.2f}')
+            if show_oi:
+                prepend.append(f'{summary_dict[strike.put_streamer_symbol].openInterest}')
+                row.append(f'{summary_dict[strike.call_streamer_symbol].openInterest}')
+            if show_volume:
+                prepend.append(f'{trade_dict[strike.put_streamer_symbol].dayVolume}')
+                row.append(f'{trade_dict[strike.call_streamer_symbol].dayVolume}')
+
+            prepend.reverse()
+            table.add_row(*(prepend + row), end_section=(i == strikes - 1))
 
         console.print(table)
