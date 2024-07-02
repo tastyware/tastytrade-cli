@@ -2,7 +2,7 @@
 
 An easy-to-use command line interface for Tastyworks!
 
-![Peek2024-07-0120-21-ezgif com-speed](https://github.com/tastyware/tastytrade-cli/assets/4185684/ebf4ffbd-c6da-4aad-a96f-16585da9993e)
+![Peek2024-07-0120-35-ezgif com-speed](https://github.com/tastyware/tastytrade-cli/assets/4185684/3d00731c-8f5e-40c5-973a-0f0357637083)
 
 ## Installation
 
