@@ -20,6 +20,6 @@ def main():
         logger.debug('Using Windows-specific event loop policy')
 
     app.add_command(option)
-    app.add_command(portfolio)
+    app.add_command(portfolio, name='pf')
 
     app(_anyio_backend='asyncio')

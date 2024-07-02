@@ -1,6 +1,6 @@
-# tastyworks-cli
+# tastytrade-cli
 
-An easy-to-use command line interface for Tastyworks!
+An easy-to-use command line interface for Tastytrade!
 
 ![Peek2024-07-0120-35-ezgif com-speed](https://github.com/tastyware/tastytrade-cli/assets/4185684/3d00731c-8f5e-40c5-973a-0f0357637083)
 

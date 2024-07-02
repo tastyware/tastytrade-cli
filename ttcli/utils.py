@@ -15,7 +15,7 @@ from tastytrade import Account, ProductionSession
 from tastytrade.order import NewOrder, PlacedOrderResponse
 
 logger = logging.getLogger(__name__)
-VERSION = '2.0'
+VERSION = '0.1'
 ZERO = Decimal(0)
 
 CONTEXT_SETTINGS = {'help_option_names': ['-h', '--help']}

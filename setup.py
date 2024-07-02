@@ -6,7 +6,7 @@ f.close()
 
 setup(
     name='tastytrade-cli',
-    version='2.0',
+    version='0.1',
     description='An easy-to-use command line interface for Tastytrade!',
     long_description=LONG_DESCRIPTION,
     long_description_content_type='text/markdown',

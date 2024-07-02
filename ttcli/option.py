@@ -7,28 +7,30 @@ from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
 from tastytrade.dxfeed import EventType, Greeks, Quote
-from tastytrade.instruments import NestedOptionChain, Option
+from tastytrade.instruments import Future, NestedFutureOptionChain, NestedFutureOptionChainExpiration, NestedOptionChain, NestedOptionChainExpiration, Option
 from tastytrade.order import (NewOrder, OrderAction, OrderTimeInForce,
                               OrderType, PriceEffect)
 from tastytrade.utils import get_tasty_monthly
 
-from ttcli.utils import (RenewableSession, get_confirmation, is_monthly,
+from ttcli.utils import (ZERO, RenewableSession, get_confirmation, is_monthly,
                          print_error, print_warning, test_order_handle_errors)
 
 
 def choose_expiration(
     chain: NestedOptionChain,
     include_weeklies: bool = False
-) -> date:
-    exps = [e.expiration_date for e in chain.expirations]
+) -> NestedOptionChainExpiration:
+    exps = [e for e in chain.expirations]
     if not include_weeklies:
-        exps = [e for e in exps if is_monthly(e)]
-    default = exps.index(get_tasty_monthly())
+        exps = [e for e in exps if is_monthly(e.expiration_date)]
+    default = get_tasty_monthly()
+    default_option = None
     for i, exp in enumerate(exps):
-        if i == default:
-            print(f'{i + 1}) {exp} (default)')
+        if exp.expiration_date == default:
+            default_option = exp
+            print(f'{i + 1}) {exp.expiration_date} (default)')
         else:
-            print(f'{i + 1}) {exp}')
+            print(f'{i + 1}) {exp.expiration_date}')
     choice = 0
     while choice not in range(1, len(exps) + 1):
         try:
@@ -36,7 +38,33 @@ def choose_expiration(
             choice = int(raw)
         except ValueError:
             if not raw:
-                return exps[default]
+                return default_option
+
+    return exps[choice - 1]
+
+
+def choose_futures_expiration(
+    chain: NestedFutureOptionChain,
+    include_weeklies: bool = False
+) -> NestedFutureOptionChainExpiration:
+    chain = chain.option_chains[0]
+    if include_weeklies:
+        exps = [e for e in chain.expirations]
+    else:
+        exps = [e for e in chain.expirations if e.expiration_type != 'Weekly']
+    for i, exp in enumerate(exps):
+        if i == 0:
+            print(f'{i + 1}) {exp.expiration_date} [{exp.underlying_symbol}] (default)')
+        else:
+            print(f'{i + 1}) {exp.expiration_date} [{exp.underlying_symbol}]')
+    choice = 0
+    while choice not in range(1, len(exps) + 1):
+        try:
+            raw = input('Please choose an expiration: ')
+            choice = int(raw)
+        except ValueError:
+            if not raw:
+                return exps[0]
 
     return exps[choice - 1]
 
@@ -87,7 +115,7 @@ async def listen_trades(
             return trade_dict
 
 
-@click.group(help='Buy, sell, and analyze options.')
+@click.group(chain=True, help='Buy, sell, and analyze options.')
 async def option():
     pass
 
@@ -114,8 +142,7 @@ async def call(symbol: str, quantity: int, strike: Optional[Decimal] = None, wid
 
     sesh = RenewableSession()
     chain = NestedOptionChain.get_chain(sesh, symbol)
-    expiration = choose_expiration(chain, weeklies)
-    subchain = next(e for e in chain.expirations if e.expiration_date == expiration)
+    subchain = choose_expiration(chain, weeklies)
 
     async with DXLinkStreamer(sesh) as streamer:
         if not strike:
@@ -152,10 +179,10 @@ async def call(symbol: str, quantity: int, strike: Optional[Decimal] = None, wid
         console = Console()
         if width:
             table = Table(show_header=True, header_style='bold', title_style='bold',
-                          title=f'Quote for {symbol} call spread {expiration}')
+                          title=f'Quote for {symbol} call spread {subchain.expiration_date}')
         else:
             table = Table(show_header=True, header_style='bold', title_style='bold',
-                          title=f'Quote for {symbol} {strike}C {expiration}')
+                          title=f'Quote for {symbol} {strike}C {subchain.expiration_date}')
         table.add_column('Bid', style='green', width=8, justify='center')
         table.add_column('Mid', width=8, justify='center')
         table.add_column('Ask', style='red', width=8, justify='center')
@@ -206,11 +233,11 @@ async def call(symbol: str, quantity: int, strike: Optional[Decimal] = None, wid
         table.add_column('BP', width=8, justify='center')
         table.add_column('BP %', width=8, justify='center')
         table.add_column('Fees', width=8, justify='center')
-        table.add_row(f'{quantity:+}', symbol, f'${strike:.2f}', 'CALL', f'{expiration}', f'${price:.2f}',
+        table.add_row(f'{quantity:+}', symbol, f'${strike:.2f}', 'CALL', f'{subchain.expiration_date}', f'${price:.2f}',
                       f'${bp:.2f}', f'{percent:.2f}%', f'${fees:.2f}')
         if width:
             table.add_row(f'{-quantity:+}', symbol, f'${spread_strike.strike_price:.2f}',
-                          'CALL', f'{expiration}', '-', '-', '-', '-')
+                          'CALL', f'{subchain.expiration_date}', '-', '-', '-', '-')
         console.print(table)
 
         if data.warnings:
@@ -245,8 +272,7 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None, width: O
 
     sesh = RenewableSession()
     chain = NestedOptionChain.get_chain(sesh, symbol)
-    expiration = choose_expiration(chain, weeklies)
-    subchain = next(e for e in chain.expirations if e.expiration_date == expiration)
+    subchain = choose_expiration(chain, weeklies)
 
     async with DXLinkStreamer(sesh) as streamer:
         if not strike:
@@ -283,10 +309,10 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None, width: O
         console = Console()
         if width:
             table = Table(show_header=True, header_style='bold', title_style='bold',
-                          title=f'Quote for {symbol} put spread {expiration}')
+                          title=f'Quote for {symbol} put spread {subchain.expiration_date}')
         else:
             table = Table(show_header=True, header_style='bold', title_style='bold',
-                          title=f'Quote for {symbol} {strike}P {expiration}')
+                          title=f'Quote for {symbol} {strike}P {subchain.expiration_date}')
         table.add_column('Bid', style='green', width=8, justify='center')
         table.add_column('Mid', width=8, justify='center')
         table.add_column('Ask', style='red', width=8, justify='center')
@@ -337,11 +363,11 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None, width: O
         table.add_column('BP', width=8, justify='center')
         table.add_column('BP %', width=8, justify='center')
         table.add_column('Fees', width=8, justify='center')
-        table.add_row(f'{quantity:+}', symbol, f'${strike:.2f}', 'PUT', f'{expiration}', f'${price:.2f}',
+        table.add_row(f'{quantity:+}', symbol, f'${strike:.2f}', 'PUT', f'{subchain.expiration_date}', f'${price:.2f}',
                       f'${bp:.2f}', f'{percent:.2f}%', f'${fees:.2f}')
         if width:
             table.add_row(f'{-quantity:+}', symbol, f'${spread_strike.strike_price:.2f}',
-                          'PUT', f'{expiration}', '-', '-', '-', '-')
+                          'PUT', f'{subchain.expiration_date}', '-', '-', '-', '-')
         console.print(table)
 
         if data.warnings:
@@ -377,8 +403,7 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
 
     sesh = RenewableSession()
     chain = NestedOptionChain.get_chain(sesh, symbol)
-    expiration = choose_expiration(chain, weeklies)
-    subchain = next(e for e in chain.expirations if e.expiration_date == expiration)
+    subchain = choose_expiration(chain, weeklies)
 
     async with DXLinkStreamer(sesh) as streamer:
         if delta is not None:
@@ -445,10 +470,10 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
         console = Console()
         if width:
             table = Table(show_header=True, header_style='bold', title_style='bold',
-                          title=f'Quote for {symbol} iron condor {expiration}')
+                          title=f'Quote for {symbol} iron condor {subchain.expiration_date}')
         else:
             table = Table(show_header=True, header_style='bold', title_style='bold',
-                          title=f'Quote for {symbol} {put_strike.strike_price}/{call_strike.strike_price} strangle {expiration}')
+                          title=f'Quote for {symbol} {put_strike.strike_price}/{call_strike.strike_price} strangle {subchain.expiration_date}')
         table.add_column('Bid', style='green', width=8, justify='center')
         table.add_column('Mid', width=8, justify='center')
         table.add_column('Ask', style='red', width=8, justify='center')
@@ -510,7 +535,7 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
             symbol,
             f'${put_strike.strike_price:.2f}',
             'PUT',
-            f'{expiration}',
+            f'{subchain.expiration_date}',
             f'${price:.2f}',
             f'${bp:.2f}',
             f'{percent:.2f}%',
@@ -521,7 +546,7 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
             symbol,
             f'${call_strike.strike_price:.2f}',
             'CALL',
-            f'{expiration}',
+            f'{subchain.expiration_date}',
             '-',
             '-',
             '-',
@@ -533,7 +558,7 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
                 symbol,
                 f'${put_spread_strike.strike_price:.2f}',
                 'PUT',
-                f'{expiration}',
+                f'{subchain.expiration_date}',
                 '-',
                 '-',
                 '-',
@@ -544,7 +569,7 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
                 symbol,
                 f'${call_spread_strike.strike_price:.2f}',
                 'CALL',
-                f'{expiration}',
+                f'{subchain.expiration_date}',
                 '-',
                 '-',
                 '-',
@@ -571,44 +596,56 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
 async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
     sesh = RenewableSession()
     async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe(EventType.QUOTE, [symbol])
-        quote = await streamer.get_event(EventType.QUOTE)
-        strike_price = (quote.bidPrice + quote.askPrice) / 2
-
-        chain = NestedOptionChain.get_chain(sesh, symbol)
-        expiration = choose_expiration(chain, weeklies)
-        subchain = next(e for e in chain.expirations if e.expiration_date == expiration)
+        if symbol[0] == '/':  # futures options
+            chain = NestedFutureOptionChain.get_chain(sesh, symbol)
+            subchain = choose_futures_expiration(chain, weeklies)
+            precision = subchain.tick_sizes[0].value.as_tuple().exponent
+        else:
+            chain = NestedOptionChain.get_chain(sesh, symbol)
+            precision = chain.tick_sizes[0].value.as_tuple().exponent
+            subchain = choose_expiration(chain, weeklies)
+        precision = abs(precision) if precision < 0 else ZERO
+        precision = f'.{precision}f'
 
         console = Console()
         table = Table(show_header=True, header_style='bold', title_style='bold',
-                      title=f'Options chain for {symbol} expiring {expiration}')
+                      title=f'Options chain for {symbol} expiring {subchain.expiration_date}')
 
         show_delta = sesh.config.getboolean('option', 'chain-show-delta', fallback=True)
         show_theta = sesh.config.getboolean('option', 'chain-show-theta', fallback=False)
         show_oi = sesh.config.getboolean('option', 'chain-show-open-interest', fallback=False)
         show_volume = sesh.config.getboolean('option', 'chain-show-volume', fallback=False)
         if show_volume:
-            table.add_column(u'Volume', width=8, justify='right')
+            table.add_column(u'Volume', justify='right')
         if show_oi:
-            table.add_column(u'Open Int', width=8, justify='right')
+            table.add_column(u'Open Int', justify='right')
         if show_theta:
-            table.add_column(u'Call \u03B8', width=6, justify='center')
+            table.add_column(u'Call \u03B8', justify='center')
         if show_delta:
-            table.add_column(u'Call \u0394', width=6, justify='center')
-        table.add_column('Bid', style='green', width=8, justify='center')
-        table.add_column('Ask', style='red', width=8, justify='center')
-        table.add_column('Strike', width=8, justify='center')
-        table.add_column('Bid', style='green', width=8, justify='center')
-        table.add_column('Ask', style='red', width=8, justify='center')
+            table.add_column(u'Call \u0394', justify='center')
+        table.add_column('Bid', style='green', justify='center')
+        table.add_column('Ask', style='red', justify='center')
+        table.add_column('Strike', justify='center')
+        table.add_column('Bid', style='green', justify='center')
+        table.add_column('Ask', style='red', justify='center')
         if show_delta:
-            table.add_column(u'Put \u0394', width=6, justify='center')
+            table.add_column(u'Put \u0394', justify='center')
         if show_theta:
-            table.add_column(u'Put \u03B8', width=6, justify='center')
+            table.add_column(u'Put \u03B8', justify='center')
         if show_oi:
-            table.add_column(u'Open Int', width=8, justify='right')
+            table.add_column(u'Open Int', justify='right')
         if show_volume:
-            table.add_column(u'Volume', width=8, justify='right')
+            table.add_column(u'Volume', justify='right')
 
+        if symbol[0] == '/':  # futures options
+            future = Future.get_future(sesh, subchain.underlying_symbol)
+            await streamer.subscribe(EventType.QUOTE, [future.streamer_symbol])
+        else:
+            await streamer.subscribe(EventType.QUOTE, [symbol])
+        quote = await streamer.get_event(EventType.QUOTE)
+        strike_price = (quote.bidPrice + quote.askPrice) / 2
+
+        subchain.strikes.sort(key=lambda s: s.strike_price)
         if strikes * 2 < len(subchain.strikes):
             mid_index = 0
             while subchain.strikes[mid_index].strike_price < strike_price:
@@ -628,7 +665,7 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
 
         greeks_dict = await listen_greeks(len(dxfeeds), streamer)
         # take into account the symbol we subscribed to
-        quote_dict = await listen_quotes(len(dxfeeds), streamer, skip=symbol)
+        quote_dict = await listen_quotes(len(dxfeeds), streamer, skip=symbol if symbol[0] != '/' else future.streamer_symbol)
         if show_oi:
             summary_dict = await listen_summaries(len(dxfeeds), streamer)
         if show_volume:
@@ -640,11 +677,11 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
             call_bid = quote_dict[strike.call_streamer_symbol].bidPrice
             call_ask = quote_dict[strike.call_streamer_symbol].askPrice
             row = [
-                f'{call_bid:.2f}',
-                f'{call_ask:.2f}',
-                f'{strike.strike_price:.2f}',
-                f'{put_bid:.2f}',
-                f'{put_ask:.2f}'
+                f'{call_bid:{precision}}',
+                f'{call_ask:{precision}}',
+                f'{strike.strike_price:{precision}}',
+                f'{put_bid:{precision}}',
+                f'{put_ask:{precision}}'
             ]
             prepend = []
             if show_delta:
