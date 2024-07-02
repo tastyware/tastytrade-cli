@@ -10,6 +10,9 @@ An easy-to-use command line interface for Tastyworks!
 $ pip install tastytrade-cli
 ```
 
+> [!WARNING]  
+> The CLI is still under active development. Please report any bugs, and contributions are always welcome!
+
 ## Usage
 
 Available commands:
