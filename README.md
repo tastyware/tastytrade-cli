@@ -7,28 +7,25 @@ An easy-to-use command line interface for Tastyworks!
 ## Installation
 
 ```
-$ pip install tastyworks-cli
+$ pip install tastytrade-cli
 ```
 
 ## Usage
 
 Available commands:
 ```
-twcli option              buy, sell, and analyze options
-twcli plot                chart your portfolio's net liquidity or profit/loss over time
+tt option              buy, sell, and analyze options
 ```
 Unavailable commands pending development:
 ```
-twcli crypto              buy, sell, and analyze cryptocurrencies
-twcli future              buy, sell, and analyze futures
-twcli order               view, replace, and cancel orders
-twcli pairs               analyze and size pairs trades
-twcli portfolio           view statistics and risk metrics for your portfolio
-twcli quant               mathematical and statistical analysis
-twcli stock               buy, sell, and analyze stock
-twcli watchlist           view current prices and other data for symbols in your watchlists
+tt crypto              buy, sell, and analyze cryptocurrencies
+tt future              buy, sell, and analyze futures
+tt stock               buy, sell, and analyze stock
+tt order               view, replace, and cancel orders
+tt pf (portfolio)      view statistics and risk metrics for your portfolio
+tt wl (watchlist)      view current prices and other data for symbols in your watchlists
 ```
-For more options, run `twcli --help` or `twcli <subcommand> --help`.
+For more options, run `tt --help` or `tt <subcommand> --help`.
 
 ## Development/Contributing
 
@@ -37,18 +34,12 @@ This project includes a number of helpers in the `Makefile` to streamline common
 Creating a virtualenv for development:
 ```
 $ make venv
-$ source env/bin/activate
-```
-
-Install the package: 
-
-```
-$ pip install -e . 
+$ source .venv/bin/activate
 ```
 
 It's usually a good idea to make sure you're passing tests locally before submitting a PR:
 ```
-$ make test
+$ make lint
 ```
 
 If you have a feature suggestion, find a bug, or would like to contribute, feel free to open an issue or create a pull request.

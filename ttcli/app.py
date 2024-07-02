@@ -1,17 +1,14 @@
 import asyncio
-import logging
 import sys
 
 import asyncclick as click
 
-from .option.commands import option
-from .plot.commands import plot
-from .utils import VERSION
-
-LOGGER = logging.getLogger(__name__)
+from ttcli.option import option
+from ttcli.portfolio import portfolio
+from ttcli.utils import CONTEXT_SETTINGS, VERSION, logger
 
 
-@click.group()
+@click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option(VERSION)
 async def app():
     pass
@@ -20,9 +17,9 @@ async def app():
 def main():
     if sys.version_info[0] == 3 and sys.version_info[1] >= 8 and sys.platform.startswith('win'):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        LOGGER.debug('Using Windows-specific event loop policy')
+        logger.debug('Using Windows-specific event loop policy')
 
     app.add_command(option)
-    app.add_command(plot)
+    app.add_command(portfolio)
 
     app(_anyio_backend='asyncio')

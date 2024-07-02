@@ -1,13 +1,11 @@
-.PHONY: clean venv test
-
-clean:
-	find . -name '*.py[co]' -delete
+.PHONY: venv lint
 
 venv:
-	python -m venv --prompt 'twcli' env
-	env/bin/pip install -r requirements.txt
+	python -m venv .venv
+	.venv/bin/pip install -r requirements.txt
+	.venv/bin/pip install -e .
 
-test:
-	isort --check --diff twcli/ tests/
-	flake8 --count --show-source --statistics --ignore=E501 twcli/ tests/
-	python -m pytest --cov=twcli --cov-report=term-missing tests/
+lint:
+	isort --check --diff ttcli/
+	flake8 --count --show-source --statistics ttcli/
+	mypy -p ttcli/
