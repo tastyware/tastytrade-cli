@@ -669,11 +669,11 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
             table.add_column(u'Call \u03B8', justify='center')
         if show_delta:
             table.add_column(u'Call \u0394', justify='center')
-        table.add_column('Bid', style='green', justify='center')
-        table.add_column('Ask', style='red', justify='center')
+        table.add_column('Bid', style='green', justify='right')
+        table.add_column('Ask', style='red', justify='right')
         table.add_column('Strike', justify='center')
-        table.add_column('Bid', style='green', justify='center')
-        table.add_column('Ask', style='red', justify='center')
+        table.add_column('Bid', style='green', justify='right')
+        table.add_column('Ask', style='red', justify='right')
         if show_delta:
             table.add_column(u'Put \u0394', justify='center')
         if show_theta:

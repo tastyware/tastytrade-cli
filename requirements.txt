@@ -1,6 +1,6 @@
-asyncclick==8.1.7.2
-flake8==7.1.0
-isort==5.13.2
-mypy==1.10.1
-tastytrade==7.7
-rich==13.7.1
+asyncclick
+flake8
+isort
+mypy
+tastytrade==8.3
+rich

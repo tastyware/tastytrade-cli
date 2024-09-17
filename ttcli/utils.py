@@ -11,7 +11,7 @@ from typing import Optional
 
 import requests
 from rich import print as rich_print
-from tastytrade import Account, ProductionSession
+from tastytrade import Account, Session
 from tastytrade.order import NewOrder, PlacedOrderResponse
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def test_order_handle_errors(
         return PlacedOrderResponse(**data)
 
 
-class RenewableSession(ProductionSession):
+class RenewableSession(Session):
     def __init__(self):
         custom_path = os.path.join(os.path.expanduser('~'), CUSTOM_CONFIG_PATH)
         default_path = os.path.join(sys.prefix, DEFAULT_CONFIG_PATH)
@@ -86,7 +86,7 @@ class RenewableSession(ProductionSession):
         if not logged_in:
             # either the token expired or doesn't exist
             username, password = self._get_credentials()
-            ProductionSession.__init__(self, username, password)
+            Session.__init__(self, username, password)
 
             accounts = Account.get_accounts(self)
             self.accounts = [acc for acc in accounts if not acc.is_closed]
@@ -150,3 +150,4 @@ def get_confirmation(prompt: str) -> bool:
             return True
         if answer[0] == 'n':
             return False
+

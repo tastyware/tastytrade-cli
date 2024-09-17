@@ -30,6 +30,14 @@ tt wl (watchlist)      view current prices and other data for symbols in your wa
 ```
 For more options, run `tt --help` or `tt <subcommand> --help`.
 
+## Shell completion
+
+Place this line in your `.bashrc`:
+
+```console
+$ eval "$(_TT_COMPLETE=bash_source tt)"
+```
+
 ## Development/Contributing
 
 This project includes a number of helpers in the `Makefile` to streamline common development tasks.
