@@ -6,7 +6,11 @@ from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
 from tastytrade.dxfeed import EventType, Greeks, Quote
-from tastytrade.instruments import Future, FutureOption, NestedFutureOptionChain, NestedFutureOptionChainExpiration, NestedOptionChain, NestedOptionChainExpiration, Option
+from tastytrade.instruments import (Future, FutureOption,
+                                    NestedFutureOptionChain,
+                                    NestedFutureOptionChainExpiration,
+                                    NestedOptionChain,
+                                    NestedOptionChainExpiration, Option)
 from tastytrade.order import (NewOrder, OrderAction, OrderTimeInForce,
                               OrderType, PriceEffect)
 from tastytrade.utils import get_tasty_monthly
@@ -536,17 +540,18 @@ async def strangle(symbol: str, quantity: int, call: Optional[Decimal] = None, w
         else:
             options = Option.get_options(sesh, tt_symbols)
         options.sort(key=lambda o: o.strike_price)
+        q = Decimal(quantity)
         if width:
             legs = [
-                options[0].build_leg(abs(quantity), OrderAction.BUY_TO_OPEN if quantity < 0 else OrderAction.SELL_TO_OPEN),
-                options[1].build_leg(abs(quantity), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN),
-                options[2].build_leg(abs(quantity), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN),
-                options[3].build_leg(abs(quantity), OrderAction.BUY_TO_OPEN if quantity < 0 else OrderAction.SELL_TO_OPEN)
+                options[0].build_leg(abs(q), OrderAction.BUY_TO_OPEN if quantity < 0 else OrderAction.SELL_TO_OPEN),
+                options[1].build_leg(abs(q), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN),
+                options[2].build_leg(abs(q), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN),
+                options[3].build_leg(abs(q), OrderAction.BUY_TO_OPEN if quantity < 0 else OrderAction.SELL_TO_OPEN)
             ]
         else:
             legs = [
-                options[0].build_leg(abs(quantity), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN),
-                options[1].build_leg(abs(quantity), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN)
+                options[0].build_leg(abs(q), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN),
+                options[1].build_leg(abs(q), OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN)
             ]
         order = NewOrder(
             time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,

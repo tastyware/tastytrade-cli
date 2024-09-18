@@ -6,15 +6,17 @@ from typing import cast
 import asyncclick as click
 from rich.console import Console
 from rich.table import Table
-from tastytrade import DXLinkStreamer, Equity
+from tastytrade import (DXLinkStreamer, Equity, NewOrder, OrderAction,
+                        OrderTimeInForce, PriceEffect)
 from tastytrade.dxfeed import EventType, Greeks, Summary, Trade
-from tastytrade.instruments import (Cryptocurrency, Future, FutureOption,
-                                    Option)
-from tastytrade.metrics import get_market_metrics, MarketMetricInfo
-from tastytrade.order import InstrumentType, TradeableTastytradeJsonDataclass
-from tastytrade.utils import today_in_new_york
+from tastytrade.instruments import Cryptocurrency, Future, FutureOption, Option
+from tastytrade.metrics import MarketMetricInfo, get_market_metrics
+from tastytrade.order import (InstrumentType, OrderType,
+                              TradeableTastytradeJsonDataclass)
+from tastytrade.utils import TastytradeError, today_in_new_york
 
-from ttcli.utils import RenewableSession, get_confirmation
+from ttcli.utils import (RenewableSession, get_confirmation, print_warning,
+                         test_order_handle_errors)
 
 
 @click.group(help='View positions and stats for your portfolio.')
@@ -67,6 +69,7 @@ async def positions(all: bool = False):
         account = sesh.get_account()
         positions = account.get_positions(sesh, include_marks=True)
     positions.sort(key=lambda pos: pos.symbol)
+    pos_dict = {pos.symbol: pos for pos in positions}
     options_symbols = [
         p.symbol
         for p in positions
@@ -294,14 +297,15 @@ async def positions(all: bool = False):
         ])
         table.add_row(*row, end_section=(i == len(positions) - 1))
     # summary
-    final_row = [
-        '',
-        '',
+    final_row = ['']
+    if all:
+        final_row.append('')
+    final_row.extend([
         '',
         '',
         conditional_color(sums['pnl_day']),
         conditional_color(sums['pnl'])
-    ]
+    ])
     if table_show_mark:
         final_row.append('')
     if table_show_trade:
@@ -320,7 +324,76 @@ async def positions(all: bool = False):
     ])
     table.add_row(*final_row)
     console.print(table)
-    close = get_confirmation('Close out a position? y/N ')
+    close = get_confirmation('Close out a position? y/N ', default=False)
+    if not close:
+        return
+    # get the position(s) to close
+    to_close = input('Enter the number(s) of the leg(s) to include in closing order, separated by commas: ')
+    if not to_close:
+        return
+    to_close = [int(i) for i in to_close.split(',')]
+    close_objs = [closing[i] for i in to_close]
+    account_number = pos_dict[close_objs[0].symbol].account_number
+    if any(pos_dict[o.symbol].account_number != account_number for o in close_objs):
+        print('All legs must be in the same account!')
+        return
+    account = next(a for a in sesh.accounts if a.account_number == account_number)
+    legs = []
+    total_price = Decimal(0)
+    tif = OrderTimeInForce.DAY
+    for o in close_objs:
+        pos = pos_dict[o.symbol]
+        total_price += pos.mark_price * (1 if pos.quantity_direction == 'Long' else -1)
+        if isinstance(o, Future):
+            action = (OrderAction.SELL
+                      if pos.quantity_direction == 'Long'
+                      else OrderAction.BUY)
+        else:
+            action = (OrderAction.SELL_TO_CLOSE
+                      if pos.quantity_direction == 'Long'
+                      else OrderAction.BUY_TO_CLOSE)
+        if isinstance(o, Cryptocurrency):
+            tif = OrderTimeInForce.GTC
+        legs.append(o.build_leg(pos.quantity, action))
+
+    console.print(f'Mark price for trade: {conditional_color(total_price)}')
+    price = input('Please enter a limit price per quantity (default mark): ')
+    if price:
+        total_price = Decimal(price)
+    else:
+        total_price = round(total_price, 2)
+    
+    order = NewOrder(
+        time_in_force=tif,
+        order_type=OrderType.LIMIT,
+        legs=legs,
+        price=abs(total_price),
+        price_effect=PriceEffect.CREDIT if total_price > 0 else PriceEffect.DEBIT
+    )
+    data = test_order_handle_errors(account, sesh, order)
+    if not data:
+        return
+
+    bp = data.buying_power_effect.change_in_buying_power
+    bp *= -1 if data.buying_power_effect.change_in_buying_power_effect == PriceEffect.DEBIT else 1
+    fees = data.fee_calculation.total_fees if data.fee_calculation else 0
+
+    table = Table(show_header=True, header_style='bold', title_style='bold', title='Order Review')
+    table.add_column('Symbol', justify='center')
+    table.add_column('Price', justify='center')
+    table.add_column('BP Effect', justify='center')
+    table.add_column('Fees', justify='center')
+    table.add_row(order.legs[0].symbol, conditional_color(total_price),
+                  conditional_color(bp), f'[red]${fees:.2f}[/red]')
+    for i in range(1, len(order.legs)):
+        table.add_row(order.legs[i].symbol, '-', '-', '-')
+    console.print(table)
+
+    if data.warnings:
+        for warning in data.warnings:
+            print_warning(warning.message)
+    if get_confirmation('Send order? Y/n '):
+        account.place_order(sesh, order, dry_run=False)
 
 
 @portfolio.command(help='View your previous positions.')

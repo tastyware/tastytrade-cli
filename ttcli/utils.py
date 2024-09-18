@@ -9,7 +9,6 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-import requests
 from rich import print as rich_print
 from tastytrade import Account, Session
 from tastytrade.order import NewOrder, PlacedOrderResponse
@@ -40,8 +39,7 @@ def test_order_handle_errors(
 ) -> Optional[PlacedOrderResponse]:
     url = f'{session.base_url}/accounts/{account.account_number}/orders/dry-run'
     json = order.model_dump_json(exclude_none=True, by_alias=True)
-
-    response = requests.post(url, headers=session.headers, data=json)
+    response = session.client.post(url, data=json)
     # modified to use our error handling
     if response.status_code // 100 != 2:
         content = response.json()['error']
@@ -132,8 +130,7 @@ class RenewableSession(Session):
                 raw = input('Please choose an account: ')
                 choice = int(raw)
             except ValueError:
-                if not raw:
-                    return self.accounts[0]
+                return self.accounts[0]
         return self.accounts[choice - 1]
 
 
@@ -141,11 +138,11 @@ def is_monthly(day: date) -> bool:
     return day.weekday() == 4 and 15 <= day.day <= 21
 
 
-def get_confirmation(prompt: str) -> bool:
+def get_confirmation(prompt: str, default: bool = True) -> bool:
     while True:
         answer = input(prompt).lower()
         if not answer:
-            return True
+            return default
         if answer[0] == 'y':
             return True
         if answer[0] == 'n':
