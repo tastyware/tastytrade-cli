@@ -1,6 +1,0 @@
-asyncclick
-flake8
-isort
-mypy
-tastytrade==8.3
-rich

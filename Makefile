@@ -1,11 +1,9 @@
-.PHONY: venv lint
+.PHONY: install lint
 
-venv:
-	python -m venv .venv
-	.venv/bin/pip install -r requirements.txt
-	.venv/bin/pip install -e .
+install:
+	uv sync
+	uv pip install .
 
 lint:
-	isort --check --diff ttcli/
-	flake8 --count --show-source --statistics ttcli/
-	mypy -p ttcli/
+	uv run ruff check ttcli/
+	uv run mypy -p ttcli

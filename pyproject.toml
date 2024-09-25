@@ -1,0 +1,29 @@
+[project]
+name = "tastytrade-cli"
+version = "0.2"
+description = "An easy-to-use command line interface for Tastytrade!"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Graeme Holliday", email = "graeme.holliday@pm.me"},
+]
+
+dependencies = [
+    "asyncclick>=8.1.7.2",
+    "rich>=13.8.1",
+    "tastytrade>=8.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/tastyware/tastytrade-cli"
+
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6.29.5",
+    "mypy>=1.11.2",
+    "ruff>=0.6.7",
+]
+
+[project.scripts]
+tt = "ttcli.app:main"

@@ -3,10 +3,10 @@ import logging
 import os
 import pickle
 import shutil
-import sys
 from configparser import ConfigParser
 from datetime import date
 from decimal import Decimal
+from importlib.resources import as_file, files
 from typing import Optional
 
 from rich import print as rich_print
@@ -14,13 +14,12 @@ from tastytrade import Account, Session
 from tastytrade.order import NewOrder, PlacedOrderResponse
 
 logger = logging.getLogger(__name__)
-VERSION = '0.1'
+VERSION = '0.2'
 ZERO = Decimal(0)
 
 CONTEXT_SETTINGS = {'help_option_names': ['-h', '--help']}
 
 CUSTOM_CONFIG_PATH = '.config/ttcli/ttcli.cfg'
-DEFAULT_CONFIG_PATH = 'etc/ttcli.cfg'
 TOKEN_PATH = '.config/ttcli/.session'
 
 
@@ -60,7 +59,7 @@ def test_order_handle_errors(
 class RenewableSession(Session):
     def __init__(self):
         custom_path = os.path.join(os.path.expanduser('~'), CUSTOM_CONFIG_PATH)
-        default_path = os.path.join(sys.prefix, DEFAULT_CONFIG_PATH)
+        data_file = files('ttcli.data').joinpath('ttcli.cfg')
         token_path = os.path.join(os.path.expanduser('~'), TOKEN_PATH)
 
         logged_in = False
@@ -75,10 +74,11 @@ class RenewableSession(Session):
         # load config
         self.config = ConfigParser()
         if not os.path.exists(custom_path):
-            # copy default config to user home dir
-            os.makedirs(os.path.dirname(custom_path), exist_ok=True)
-            shutil.copyfile(default_path, custom_path)
-            self.config.read(default_path)
+            with as_file(data_file) as path:
+                # copy default config to user home dir
+                os.makedirs(os.path.dirname(custom_path), exist_ok=True)
+                shutil.copyfile(path, custom_path)
+                self.config.read(path)
         self.config.read(custom_path)
 
         if not logged_in:

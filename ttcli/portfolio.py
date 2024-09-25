@@ -13,7 +13,7 @@ from tastytrade.instruments import Cryptocurrency, Future, FutureOption, Option
 from tastytrade.metrics import MarketMetricInfo, get_market_metrics
 from tastytrade.order import (InstrumentType, OrderType,
                               TradeableTastytradeJsonDataclass)
-from tastytrade.utils import TastytradeError, today_in_new_york
+from tastytrade.utils import today_in_new_york
 
 from ttcli.utils import (RenewableSession, get_confirmation, print_warning,
                          test_order_handle_errors)
