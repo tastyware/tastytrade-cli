@@ -8,22 +8,21 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python 3.12
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
-        python-version: 3.12
-    - name: Install dependencies
+        python-version: '3.12'
+    - uses: yezz123/setup-uv@v4
+    - name: Setup uv venv
       run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Sorting...
-      run: isort --check --diff ttcli/
-    - name: Linting...
-      run: flake8 --count --show-source --statistics ttcli/
-    - name: Type checking...
-      run: mypy -p ttcli/
+        uv sync
+        uv pip install .
+    - name: Lint with ruff
+      run: |
+        uv run ruff check ttcli/
+    - name: Type check with mypy
+      run: |
+        uv run mypy -p ttcli

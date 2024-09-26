@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import cast
 
@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from tastytrade import (DXLinkStreamer, Equity, NewOrder, OrderAction,
                         OrderTimeInForce, PriceEffect)
+from tastytrade.account import MarginReportEntry
 from tastytrade.dxfeed import EventType, Greeks, Summary, Trade
 from tastytrade.instruments import Cryptocurrency, Future, FutureOption, Option
 from tastytrade.metrics import MarketMetricInfo, get_market_metrics
@@ -15,7 +16,7 @@ from tastytrade.order import (InstrumentType, OrderType,
                               TradeableTastytradeJsonDataclass)
 from tastytrade.utils import today_in_new_york
 
-from ttcli.utils import (RenewableSession, get_confirmation, print_warning,
+from ttcli.utils import (ZERO, RenewableSession, get_confirmation, print_warning,
                          test_order_handle_errors)
 
 
@@ -26,7 +27,7 @@ async def portfolio():
 
 def conditional_color(value: Decimal, dollars: bool = True) -> str:
     d = '$' if dollars else ''
-    return (f'[red]{d}{value:.2f}[/red]'
+    return (f'[red]-{d}{abs(value):.2f}[/red]'
             if value < 0
             else f'[green]{d}{value:.2f}[/green]')
 
@@ -44,10 +45,6 @@ def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
         days_til = (metrics.earnings.expected_report_date - today).days
         indicators.append(f'[medium_orchid]E {days_til}[/medium_orchid]')
     return ' '.join(indicators) if indicators else ''
-
-
-def get_day_open(summary: Summary) -> Decimal:
-    return summary.dayOpenPrice or summary.prevDayClosePrice or Decimal(0)
 
 
 @portfolio.command(help='View your current positions.')
@@ -110,19 +107,19 @@ async def positions(all: bool = False):
                       if p.instrument_type == InstrumentType.EQUITY]
     equities = Equity.get_equities(sesh, equity_symbols)
     equity_dict = {e.symbol: e for e in equities}
-    streamer_symbols = list(set(
+    all_symbols = list(set(
         [o.underlying_symbol for o in options] +
         [c.streamer_symbol for c in cryptos] +
         equity_symbols +
         [f.streamer_symbol for f in futures]
     )) + greeks_symbols
     # get greeks for options
-    greeks_dict = {}
-    summary_dict = {}
+    greeks_dict: dict[str, Greeks] = {}
+    summary_dict: dict[str, Decimal] = {}
     async with DXLinkStreamer(sesh) as streamer:
         if greeks_symbols != []:
             await streamer.subscribe(EventType.GREEKS, greeks_symbols)  # type: ignore
-        await streamer.subscribe(EventType.SUMMARY, streamer_symbols)  # type: ignore
+        await streamer.subscribe(EventType.SUMMARY, all_symbols)  # type: ignore
         await streamer.subscribe(EventType.TRADE, ['SPY'])
         if greeks_symbols != []:
             async for greeks in streamer.listen(EventType.GREEKS):
@@ -130,13 +127,13 @@ async def positions(all: bool = False):
                 greeks_dict[greeks.eventSymbol] = greeks
                 if len(greeks_dict) == len(greeks_symbols):
                     break
-        async for summary in streamer.listen(EventType.SUMMARY):
-            summary = cast(Summary, summary)
-            summary_dict[summary.eventSymbol] = summary
-            if len(summary_dict) == len(streamer_symbols):
-                break
         spy = await streamer.get_event(EventType.TRADE)
         spy = cast(Trade, spy)
+        async for summary in streamer.listen(EventType.SUMMARY):
+            summary = cast(Summary, summary)
+            summary_dict[summary.eventSymbol] = summary.prevDayClosePrice or ZERO
+            if len(summary_dict) == len(all_symbols):
+                break
     spy_price = spy.price or 0
     tt_symbols = set(pos.symbol for pos in positions)
     tt_symbols.update(set(o.underlying_symbol for o in options))
@@ -144,11 +141,11 @@ async def positions(all: bool = False):
     metrics = get_market_metrics(sesh, list(tt_symbols))
     metrics_dict = {metric.symbol: metric for metric in metrics}
 
-    table_show_mark = sesh.config.getboolean('portfolio', 'table-show-mark-price', fallback=False)
-    table_show_trade = sesh.config.getboolean('portfolio', 'table-show-trade-price', fallback=False)
-    table_show_delta = sesh.config.getboolean('portfolio', 'table-show-delta', fallback=False)
-    table_show_theta = sesh.config.getboolean('portfolio', 'table-show-theta', fallback=False)
-    table_show_gamma = sesh.config.getboolean('portfolio', 'table-show-gamma', fallback=False)
+    table_show_mark = sesh.config.getboolean('portfolio', 'positions-show-mark-price', fallback=False)
+    table_show_trade = sesh.config.getboolean('portfolio', 'positions-show-trade-price', fallback=False)
+    table_show_delta = sesh.config.getboolean('portfolio', 'positions-show-delta', fallback=False)
+    table_show_theta = sesh.config.getboolean('portfolio', 'positions-show-theta', fallback=False)
+    table_show_gamma = sesh.config.getboolean('portfolio', 'positions-show-gamma', fallback=False)
     table.add_column('Symbol', justify='left')
     table.add_column('Qty', justify='right')
     table.add_column('Day P/L', justify='right')
@@ -167,14 +164,14 @@ async def positions(all: bool = False):
     table.add_column(u'\u03B2 Delta', justify='right')
     table.add_column('Net Liq', justify='right')
     table.add_column('Indicators', justify='center')
-    sums = defaultdict(lambda: Decimal(0))
+    sums = defaultdict(lambda: ZERO)
     closing: dict[int, TradeableTastytradeJsonDataclass] = {}
     for i, pos in enumerate(positions):
         row = [f'{i+1}']
         mark = pos.mark or 0
+        mark_price = pos.mark_price or 0
         m = (1 if pos.quantity_direction == 'Long' else -1)
-        mark_price = mark / pos.quantity
-        pos_mark_price = pos.mark_price or 0
+        #mark_price = mark / pos.quantity
         if all:
             row.append(account_dict[pos.account_number])  # type: ignore
         net_liq = Decimal(mark * m)
@@ -184,9 +181,9 @@ async def positions(all: bool = False):
             o = options_dict[pos.symbol]
             closing[i + 1] = o
             # BWD = beta * stock price * delta / index price
-            delta = greeks_dict[o.streamer_symbol].delta * 100 * m
-            theta = greeks_dict[o.streamer_symbol].theta * 100 * m
-            gamma = greeks_dict[o.streamer_symbol].gamma * 100 * m
+            delta = greeks_dict[o.streamer_symbol].delta * 100 * m  # type: ignore
+            theta = greeks_dict[o.streamer_symbol].theta * 100 * m  # type: ignore
+            gamma = greeks_dict[o.streamer_symbol].gamma * 100 * m  # type: ignore
             metrics = metrics_dict[o.underlying_symbol]
             beta = metrics.beta or 0
             bwd = beta *  mark * delta / spy_price
@@ -194,8 +191,7 @@ async def positions(all: bool = False):
             indicators = get_indicators(today, metrics)
             pnl = m * (mark_price - pos.average_open_price * pos.multiplier)
             trade_price = pos.average_open_price * pos.multiplier
-            open_price = get_day_open(summary_dict[o.streamer_symbol])
-            day_change = pos_mark_price - open_price
+            day_change = mark_price - summary_dict[o.streamer_symbol]  # type: ignore
             pnl_day = day_change * pos.quantity * pos.multiplier
         elif pos.instrument_type == InstrumentType.FUTURE_OPTION:
             o = future_options_dict[pos.symbol]
@@ -207,13 +203,12 @@ async def positions(all: bool = False):
             f = futures_dict[o.underlying_symbol]
             metrics = metrics_dict[o.root_symbol]
             indicators = get_indicators(today, metrics)
-            bwd = (get_day_open(summary_dict[f.streamer_symbol]) *
+            bwd = (summary_dict[f.streamer_symbol] *  # type: ignore
                    metrics.beta * delta / spy_price) if metrics.beta else 0
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             trade_price = pos.average_open_price / f.display_factor
             pnl = (mark_price - trade_price) * m
-            open_price = get_day_open(summary_dict[o.streamer_symbol])
-            day_change = pos_mark_price - open_price
+            day_change = mark_price - summary_dict[o.streamer_symbol]  # type: ignore
             pnl_day = day_change * pos.quantity * pos.multiplier
         elif pos.instrument_type == InstrumentType.EQUITY:
             theta = 0
@@ -221,15 +216,15 @@ async def positions(all: bool = False):
             delta = pos.quantity * m
             # BWD = beta * stock price * delta / index price
             metrics = metrics_dict[pos.symbol]
-            closing[i + 1] = equity_dict[pos.symbol]
+            e = equity_dict[pos.symbol]
+            closing[i + 1] = e
             beta = metrics.beta or 0
             indicators = get_indicators(today, metrics)
             bwd = beta * mark_price * delta / spy_price
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             pnl = mark - pos.average_open_price * pos.quantity * m
             trade_price = pos.average_open_price
-            open_price = get_day_open(summary_dict[pos.symbol])
-            day_change = pos_mark_price - open_price
+            day_change = mark_price - summary_dict[pos.symbol]  # type: ignore
             pnl_day = day_change * pos.quantity
         elif pos.instrument_type == InstrumentType.FUTURE:
             theta = 0
@@ -244,8 +239,7 @@ async def positions(all: bool = False):
             ivr = (metrics.tw_implied_volatility_index_rank or 0) * 100
             trade_price = pos.average_open_price * f.notional_multiplier
             pnl = (mark_price - trade_price) * pos.quantity * m
-            open_price = get_day_open(summary_dict[f.streamer_symbol])
-            day_change = pos_mark_price - open_price
+            day_change = mark_price - summary_dict[f.streamer_symbol]  # type: ignore
             pnl_day = day_change * pos.quantity * pos.multiplier
             net_liq = pnl_day
         elif pos.instrument_type == InstrumentType.CRYPTOCURRENCY:
@@ -260,8 +254,7 @@ async def positions(all: bool = False):
             pos.quantity = round(pos.quantity, 2)
             c = crypto_dict[pos.symbol]
             closing[i + 1] = c
-            open_price = get_day_open(summary_dict[c.streamer_symbol])
-            day_change = pos_mark_price - open_price
+            day_change = mark_price - summary_dict[c.streamer_symbol]  # type: ignore
             pnl_day = day_change * pos.quantity * pos.multiplier
         else:
             print(f'Skipping {pos.symbol}, unknown instrument type '
@@ -324,6 +317,12 @@ async def positions(all: bool = False):
     ])
     table.add_row(*final_row)
     console.print(table)
+    if not all:
+        delta_target = sesh.config.getint('portfolio', 'portfolio-delta-target', fallback=0)  # delta neutral
+        delta_variation = sesh.config.getint('portfolio', 'portfolio-delta-variation', fallback=5)
+        delta_diff = delta_target - sums['bwd']
+        if abs(delta_diff) > delta_variation:
+            print_warning(f'Portfolio beta-weighting misses target of {delta_target} substantially!')
     close = get_confirmation('Close out a position? y/N ', default=False)
     if not close:
         return
@@ -339,11 +338,11 @@ async def positions(all: bool = False):
         return
     account = next(a for a in sesh.accounts if a.account_number == account_number)
     legs = []
-    total_price = Decimal(0)
+    total_price = ZERO
     tif = OrderTimeInForce.DAY
     for o in close_objs:
         pos = pos_dict[o.symbol]
-        total_price += pos.mark_price * (1 if pos.quantity_direction == 'Long' else -1)
+        total_price += pos.mark_price * (1 if pos.quantity_direction == 'Long' else -1)  # type: ignore
         if isinstance(o, Future):
             action = (OrderAction.SELL
                       if pos.quantity_direction == 'Long'
@@ -397,11 +396,138 @@ async def positions(all: bool = False):
 
 
 @portfolio.command(help='View your previous positions.')
-async def history():
-    pass
+@click.option('--start-date', type=click.DateTime(['%Y-%m-%d']), help='The start date for the search date range.')
+@click.option('--end-date', type=click.DateTime(['%Y-%m-%d']), help='The end date for the search date range.')
+@click.option('-s', '--symbol', type=str, help='Filter by underlying symbol.')
+@click.option('-t', '--type', type=click.Choice(InstrumentType), help='Filter by instrument type.')  # type: ignore
+@click.option('--asc', is_flag=True, help='Sort by ascending time instead of descending.')
+async def history(
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    symbol: str | None = None,
+    type: InstrumentType | None = None,
+    asc: bool = False
+):
+    sesh = RenewableSession()
+    acc = sesh.get_account()
+    history = acc.get_history(
+        sesh,
+        start_date=start_date.date() if start_date else None,
+        end_date=end_date.date() if end_date else None,
+        underlying_symbol=symbol if symbol and symbol[0] != '/' else None,
+        futures_symbol=symbol if symbol and symbol[0] == '/' else None,
+        instrument_type=type
+    )
+    if asc:
+        history.reverse()
+    console = Console()
+    table = Table(show_header=True, header_style='bold', title_style='bold',
+                  title=f'Transaction list for account {acc.nickname} ({acc.account_number})')
+    table.add_column('Date/Time')
+    table.add_column('Root Symbol')
+    table.add_column('Txn Type')
+    table.add_column('Description')
+    table.add_column('Gross P/L', justify='right')
+    table.add_column('Fees', style='red', justify='right')
+    table.add_column('Net P/L', justify='right')
+    last_id = history[-1].id
+    totals = defaultdict(lambda: ZERO)
+    for txn in history:
+        fees = (
+            (txn.commission or ZERO) +
+            (txn.clearing_fees or ZERO) +
+            (txn.regulatory_fees or ZERO) +
+            (txn.proprietary_index_option_fees or ZERO)
+        )
+        totals['fees'] -= fees
+        gross = txn.value * (-1 if txn.value_effect == PriceEffect.DEBIT else 1)
+        totals['gross'] += gross
+        net = txn.net_value * (-1 if txn.net_value_effect == PriceEffect.DEBIT else 1)
+        totals['net'] += net
+        table.add_row(*[
+            txn.executed_at.strftime('%Y-%m-%d %H:%M'),
+            txn.underlying_symbol or '--',
+            txn.transaction_type,
+            txn.description,
+            conditional_color(gross),
+            f'-${fees:.2f}',
+            conditional_color(net)
+        ], end_section=(txn.id == last_id))
+    # add last row
+    table.add_row(*[
+        '',
+        '',
+        '',
+        '',
+        conditional_color(totals['gross']),
+        conditional_color(totals['fees']),
+        conditional_color(totals['net'])
+    ])
+    console.print(table)
 
 
-@portfolio.command(help='View margin usage for an account.')
+@portfolio.command(help='View margin usage by position for an account.')
 async def margin():
-    pass
+    sesh = RenewableSession()
+    acc = sesh.get_account()
+    margin = acc.get_margin_requirements(sesh)
+    console = Console()
+    table = Table(show_header=True, header_style='bold', title_style='bold',
+                  title=f'Margin report for account {acc.nickname} ({acc.account_number})')
+    table.add_column('Symbol')
+    table.add_column('Used BP', justify='right')
+    table.add_column('BP %', justify='right')
+    last_entry = len(margin.groups) - 1
+    warnings = []
+    max_percent = sesh.config.getfloat('portfolio', 'bp-max-percent-per-position', fallback=5.0)
+    for i, entry in enumerate(margin.groups):
+        entry = cast(MarginReportEntry, entry)
+        bp = entry.buying_power
+        bp_percent = float(bp / margin.margin_equity * 100)
+        if bp_percent > max_percent:
+            warnings.append(f'Per-position BP usage is too high for {entry.description}, max is {max_percent}%!')
+        table.add_row(*[
+            entry.description,
+            conditional_color(bp),
+            f'{bp_percent:.1f}%'
+        ], end_section=(i == last_entry))
+    table.add_row(*[
+        '',
+        conditional_color(margin.margin_requirement),
+        f'{margin.margin_requirement / margin.margin_equity * 100:.1f}%'
+    ])
+    console.print(table)
+    for warning in warnings:
+        print_warning(warning)
+
+
+@portfolio.command(help='View current balances for an account.')
+async def balance():
+    sesh = RenewableSession()
+    acc = sesh.get_account()
+    balances = acc.get_balances(sesh)
+    console = Console()
+    table = Table(show_header=True, header_style='bold', title_style='bold',
+                  title=f'Current balance for account {acc.nickname} ({acc.account_number})')
+    table.add_column('Cash', justify='right')
+    table.add_column('Net Liq', justify='right')
+    table.add_column('Free BP', justify='right')
+    table.add_column('Used BP', justify='right')
+    table.add_column('BP %', justify='right')
+    bp_percent = balances.maintenance_requirement / balances.margin_equity * 100
+    table.add_row(*[
+        conditional_color(balances.cash_balance),
+        conditional_color(balances.net_liquidating_value),
+        conditional_color(balances.derivative_buying_power),
+        conditional_color(balances.maintenance_requirement),
+        f'{bp_percent:.1f}%'
+    ])
+    async with DXLinkStreamer(sesh) as streamer:
+        await streamer.subscribe(EventType.TRADE, ['VIX'])
+        trade = await streamer.get_event(EventType.TRADE)
+        console.print(table)
+        bp_variation = sesh.config.getint('portfolio', 'bp-target-percent-variation', fallback=10)
+        vix_diff = trade.price - bp_percent  # type: ignore
+        if abs(vix_diff) > bp_variation:
+            print_warning(f'BP usage is dangerously high given VIX level of {round(trade.price)}!')  # type: ignore
 

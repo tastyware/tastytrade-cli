@@ -17,7 +17,8 @@ $ pip install tastytrade-cli
 
 Available commands:
 ```
-tt option              buy, sell, and analyze options
+tt option              view chains, buy/sell equities and futures options
+tt pf (portfolio)      view & close positions, check margin and analyze BP usage
 ```
 Unavailable commands pending development:
 ```
@@ -25,10 +26,13 @@ tt crypto              buy, sell, and analyze cryptocurrencies
 tt future              buy, sell, and analyze futures
 tt stock               buy, sell, and analyze stock
 tt order               view, replace, and cancel orders
-tt pf (portfolio)      view statistics and risk metrics for your portfolio
 tt wl (watchlist)      view current prices and other data for symbols in your watchlists
 ```
 For more options, run `tt --help` or `tt <subcommand> --help`.
+
+## Configuration
+
+TODO
 
 ## Shell completion
 
@@ -41,11 +45,11 @@ $ eval "$(_TT_COMPLETE=bash_source tt)"
 ## Development/Contributing
 
 This project includes a number of helpers in the `Makefile` to streamline common development tasks.
+Make sure you already have [uv](https://docs.astral.sh/uv/getting-started/installation/) installed!
 
 Creating a virtualenv for development:
 ```
-$ make venv
-$ source .venv/bin/activate
+$ make install
 ```
 
 It's usually a good idea to make sure you're passing tests locally before submitting a PR:

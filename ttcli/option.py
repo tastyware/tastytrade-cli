@@ -45,8 +45,7 @@ def choose_expiration(
             raw = input('Please choose an expiration: ')
             choice = int(raw)
         except ValueError:
-            if not raw:
-                return default_option
+            return default_option
 
     return exps[choice - 1]
 
@@ -74,8 +73,7 @@ def choose_futures_expiration(
             raw = input('Please choose an expiration: ')
             choice = int(raw)
         except ValueError:
-            if not raw:
-                return default
+            return default
 
     return exps[choice - 1]
 
