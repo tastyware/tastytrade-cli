@@ -14,6 +14,7 @@ from tastytrade.instruments import (Future, FutureOption,
 from tastytrade.order import (NewOrder, OrderAction, OrderTimeInForce,
                               OrderType, PriceEffect)
 from tastytrade.utils import get_tasty_monthly
+from datetime import datetime
 
 from ttcli.utils import (ZERO, RenewableSession, get_confirmation, is_monthly,
                          print_error, print_warning, test_order_handle_errors)
@@ -135,10 +136,11 @@ async def option():
 @click.option('-w', '--width', type=int, help='Turns the order into a spread with the given width.')
 @click.option('--gtc', is_flag=True, help='Place a GTC order instead of a day order.')
 @click.option('--weeklies', is_flag=True, help='Show all expirations, not just monthlies.')
+@click.option('--dte', type=int, help='Days to expiration for the option.')
 @click.argument('symbol', type=str)
 @click.argument('quantity', type=int)
 async def call(symbol: str, quantity: int, strike: Optional[Decimal] = None, width: Optional[int] = None,
-               gtc: bool = False, weeklies: bool = False, delta: Optional[int] = None):
+               gtc: bool = False, weeklies: bool = False, delta: Optional[int] = None, dte: Optional[int] = None):
     if strike is not None and delta is not None:
         print_error('Must specify either delta or strike, but not both.')
         return
@@ -152,11 +154,19 @@ async def call(symbol: str, quantity: int, strike: Optional[Decimal] = None, wid
     sesh = RenewableSession()
     if symbol[0] == '/':  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-        subchain = choose_futures_expiration(chain, weeklies)
+        if dte is not None:
+            subchain = min(chain.option_chains[0].expirations, 
+                           key=lambda exp: abs(exp.days_to_expiration - dte))
+        else:
+            subchain = choose_futures_expiration(chain, weeklies)
         tick_size = subchain.tick_sizes[0].value
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
-        subchain = choose_expiration(chain, weeklies)
+        if dte is not None:
+            subchain = min(chain.expirations, 
+                           key=lambda exp: abs((exp.expiration_date - datetime.now().date()).days - dte))
+        else:
+            subchain = choose_expiration(chain, weeklies)
         tick_size = chain.tick_sizes[0].value
     precision = tick_size.as_tuple().exponent
     precision = abs(precision) if precision < 0 else ZERO
@@ -279,10 +289,11 @@ async def call(symbol: str, quantity: int, strike: Optional[Decimal] = None, wid
 @click.option('-w', '--width', type=int, help='Turns the order into a spread with the given width.')
 @click.option('--gtc', is_flag=True, help='Place a GTC order instead of a day order.')
 @click.option('--weeklies', is_flag=True, help='Show all expirations, not just monthlies.')
+@click.option('--dte', type=int, help='Days to expiration for the option.')
 @click.argument('symbol', type=str)
 @click.argument('quantity', type=int)
 async def put(symbol: str, quantity: int, strike: Optional[int] = None, width: Optional[int] = None,
-              gtc: bool = False, weeklies: bool = False, delta: Optional[int] = None):
+              gtc: bool = False, weeklies: bool = False, delta: Optional[int] = None, dte: Optional[int] = None):
     if strike is not None and delta is not None:
         print_error('Must specify either delta or strike, but not both.')
         return
@@ -296,11 +307,19 @@ async def put(symbol: str, quantity: int, strike: Optional[int] = None, width: O
     sesh = RenewableSession()
     if symbol[0] == '/':  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-        subchain = choose_futures_expiration(chain, weeklies)
+        if dte is not None:
+            subchain = min(chain.option_chains[0].expirations, 
+                           key=lambda exp: abs(exp.days_to_expiration - dte))
+        else:
+            subchain = choose_futures_expiration(chain, weeklies)
         tick_size = subchain.tick_sizes[0].value
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
-        subchain = choose_expiration(chain, weeklies)
+        if dte is not None:
+            subchain = min(chain.expirations, 
+                           key=lambda exp: abs((exp.expiration_date - datetime.now().date()).days - dte))
+        else:
+            subchain = choose_expiration(chain, weeklies)
         tick_size = chain.tick_sizes[0].value
     precision = tick_size.as_tuple().exponent
     precision = abs(precision) if precision < 0 else ZERO
