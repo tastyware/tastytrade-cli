@@ -35,19 +35,32 @@ For more options, run `tt --help` or `tt <subcommand> --help`.
 TODO
 
 ## Shell completion
+<details>
+  <summary>Bash</summary>
 
-* Bash: Add this line to your `.bashrc`:
+Add this line to your `.bashrc`:
 ```bash
 eval "$(_TT_COMPLETE=bash_source tt)"
 ```
-* Zsh: Add this line to your `.zshrc`:
+</details>
+
+<details>
+  <summary>Zsh</summary>
+  
+Add this line to your `.zshrc`:
 ```zsh
 eval "$(_TT_COMPLETE=zsh_source tt)"
 ```
-* Fish: Add this to `~/.config/fish/completions/tt.fish`
+</details>
+
+<details>
+  <summary>Fish</summary>
+  
+Add this to `~/.config/fish/completions/tt.fish`
 ```fish
 _TT_COMPLETE=fish_source tt | source
 ```
+</details>
 
 ## Development/Contributing
 
