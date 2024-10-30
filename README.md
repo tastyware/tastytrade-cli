@@ -36,10 +36,17 @@ TODO
 
 ## Shell completion
 
-Place this line in your `.bashrc`:
-
-```console
-$ eval "$(_TT_COMPLETE=bash_source tt)"
+* Bash: Add this line to your `.bashrc`:
+```bash
+eval "$(_TT_COMPLETE=bash_source tt)"
+```
+* Zsh: Add this line to your `.zshrc`:
+```zsh
+eval "$(_TT_COMPLETE=zsh_source tt)"
+```
+* Fish: Add this to `~/.config/fish/completions/tt.fish`
+```fish
+_TT_COMPLETE=fish_source tt | source
 ```
 
 ## Development/Contributing
