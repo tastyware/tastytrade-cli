@@ -6,4 +6,4 @@ install:
 
 lint:
 	uv run ruff check ttcli/
-	uv run mypy -p ttcli
+	uv run pyright ttcli/

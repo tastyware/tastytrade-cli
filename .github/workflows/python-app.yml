@@ -23,6 +23,6 @@ jobs:
     - name: Lint with ruff
       run: |
         uv run ruff check ttcli/
-    - name: Type check with mypy
+    - name: Type check with pyright
       run: |
-        uv run mypy -p ttcli
+        uv run pyright ttcli/

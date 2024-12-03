@@ -16,7 +16,7 @@ authors = [
 dependencies = [
     "asyncclick>=8.1.7.2",
     "rich>=13.8.1",
-    "tastytrade>=8.3",
+    "tastytrade>=9.2",
 ]
 
 [project.urls]
@@ -25,9 +25,12 @@ Homepage = "https://github.com/tastyware/tastytrade-cli"
 [tool.uv]
 dev-dependencies = [
     "ipykernel>=6.29.5",
-    "mypy>=1.11.2",
+    "pyright>=1.1.389",
     "ruff>=0.6.7",
 ]
 
 [project.scripts]
 tt = "ttcli.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ttcli"]
