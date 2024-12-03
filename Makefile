@@ -2,8 +2,9 @@
 
 install:
 	uv sync
-	uv pip install .
+	uv pip install -e .
 
 lint:
+	uv run ruff format ttcli/
 	uv run ruff check ttcli/
 	uv run pyright ttcli/

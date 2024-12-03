@@ -2,18 +2,17 @@ import getpass
 import logging
 import os
 import pickle
-import shutil
 from configparser import ConfigParser
 from datetime import date
 from decimal import Decimal
-from importlib.resources import as_file, files
 from typing import Any, Type
 
 from httpx import AsyncClient, Client
 from rich import print as rich_print
 from tastytrade import Account, DXLinkStreamer, Session
 from tastytrade.dxfeed import Quote
-from tastytrade.streamer import EventType, U
+from tastytrade.instruments import TickSize
+from tastytrade.streamer import U
 
 logger = logging.getLogger(__name__)
 VERSION = "0.3"
@@ -24,6 +23,8 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 CUSTOM_CONFIG_PATH = ".config/ttcli/ttcli.cfg"
 TOKEN_PATH = ".config/ttcli/.session"
 
+config_path = os.path.join(os.path.expanduser("~"), CUSTOM_CONFIG_PATH)
+
 
 def print_error(msg: str):
     rich_print(f"[bold red]Error: {msg}[/bold red]")
@@ -33,13 +34,24 @@ def print_warning(msg: str):
     rich_print(f"[light_coral]Warning: {msg}[/light_coral]")
 
 
+def round_to_width(x, base=Decimal(1)):
+    return base * round(x / base)
+
+
+def round_to_tick_size(price: Decimal, ticks: list[TickSize]) -> Decimal:
+    for tick in ticks:
+        if tick.threshold is None or price < tick.threshold:
+            return round_to_width(price, tick.value)
+    return price  # unreachable
+
+
 async def listen_events(
     dxfeeds: list[str], event_class: Type[U], streamer: DXLinkStreamer
 ) -> dict[str, U]:
     event_dict = {}
     await streamer.subscribe(event_class, dxfeeds)
     async for event in streamer.listen(event_class):
-        if event_class == Quote and (event.bidPrice is None or event.askPrice is None):  # type: ignore
+        if event_class == Quote and event.bidPrice is None:  # type: ignore
             continue
         event_dict[event.eventSymbol] = event
         if len(event_dict) == len(dxfeeds):
@@ -49,10 +61,7 @@ async def listen_events(
 
 class RenewableSession(Session):
     def __init__(self):
-        custom_path = os.path.join(os.path.expanduser("~"), CUSTOM_CONFIG_PATH)
-        data_file = files("ttcli.data").joinpath("ttcli.cfg")
         token_path = os.path.join(os.path.expanduser("~"), TOKEN_PATH)
-
         logged_in = False
         # try to load token
         if os.path.exists(token_path):
@@ -63,15 +72,9 @@ class RenewableSession(Session):
             # make sure token hasn't expired
             logged_in = self.validate()
 
-        # load config
+        # load config; should always exist
         self.config = ConfigParser()
-        if not os.path.exists(custom_path):
-            with as_file(data_file) as path:
-                # copy default config to user home dir
-                os.makedirs(os.path.dirname(custom_path), exist_ok=True)
-                shutil.copyfile(path, custom_path)
-                self.config.read(path)
-        self.config.read(custom_path)
+        self.config.read(config_path)
 
         if not logged_in:
             # either the token expired or doesn't exist

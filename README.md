@@ -19,12 +19,12 @@ Available commands:
 ```
 tt option              view chains, buy/sell equities and futures options
 tt pf (portfolio)      view & close positions, check margin and analyze BP usage
+tt stock               buy, sell, and analyze stock
 ```
 Unavailable commands pending development:
 ```
 tt crypto              buy, sell, and analyze cryptocurrencies
 tt future              buy, sell, and analyze futures
-tt stock               buy, sell, and analyze stock
 tt order               view, replace, and cancel orders
 tt wl (watchlist)      view current prices and other data for symbols in your watchlists
 ```
@@ -32,7 +32,9 @@ For more options, run `tt --help` or `tt <subcommand> --help`.
 
 ## Configuration
 
-TODO
+Many aspects of the CLI's behavior can be customized using the `ttcli.cfg` file generated upon the first usage of the CLI. The file is located in your OS's home directory followed by the path `.config/ttcli/ttcli.cfg`. If you don't know where that is, you can just run `python -c "from ttcli.utils import config_path; print(config_path)"`.
+
+The default configuration file contains lots of options along with explanations of what they do.
 
 ## Shell completion
 <details>

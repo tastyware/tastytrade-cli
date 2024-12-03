@@ -551,9 +551,9 @@ async def margin():
         if not entry:
             continue
         entry = cast(MarginReportEntry, entry)
-        bp = entry.buying_power
-        bp_percent = float(bp / margin.margin_equity * 100)
-        if bp_percent > max_percent:
+        bp = -entry.buying_power
+        bp_percent = abs(float(bp / margin.margin_equity * 100))
+        if abs(bp_percent) > max_percent:
             warnings.append(
                 f"Per-position BP usage is too high for {entry.description}, max is {max_percent}%!"
             )
@@ -561,16 +561,31 @@ async def margin():
             *[entry.description, conditional_color(bp), f"{bp_percent:.1f}%"],
             end_section=(i == last_entry),
         )
+    bp_percent = abs(round(margin.margin_requirement / margin.margin_equity * 100, 1))
     table.add_row(
         *[
             "",
             conditional_color(margin.margin_requirement),
-            f"{margin.margin_requirement / margin.margin_equity * 100:.1f}%",
+            f"{bp_percent}%",
         ]
     )
-    console.print(table)
-    for warning in warnings:
-        print_warning(warning)
+    async with DXLinkStreamer(sesh) as streamer:
+        await streamer.subscribe(Trade, ["VIX"])
+        trade = await streamer.get_event(Trade)
+        console.print(table)
+        bp_variation = sesh.config.getint(
+            "portfolio", "bp-target-percent-variation", fallback=10
+        )
+        if trade.price - bp_percent > bp_variation:  # type: ignore
+            warnings.append(
+                f"BP usage is relatively low given VIX level of {round(trade.price)}!"  # type: ignore
+            )  # type: ignore
+        elif bp_percent - trade.price > bp_variation:  # type: ignore
+            warnings.append(
+                f"BP usage is relatively high given VIX level of {round(trade.price)}!"  # type: ignore
+            )  # type: ignore
+        for warning in warnings:
+            print_warning(warning)
 
 
 @portfolio.command(help="View current balances for an account.")
@@ -596,19 +611,8 @@ async def balance():
             conditional_color(balances.cash_balance),
             conditional_color(balances.net_liquidating_value),
             conditional_color(balances.derivative_buying_power),
-            conditional_color(balances.maintenance_requirement),
+            conditional_color(-balances.maintenance_requirement),
             f"{bp_percent:.1f}%",
         ]
     )
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe(Trade, ["VIX"])
-        trade = await streamer.get_event(Trade)
-        console.print(table)
-        bp_variation = sesh.config.getint(
-            "portfolio", "bp-target-percent-variation", fallback=10
-        )
-        vix_diff = trade.price - bp_percent  # type: ignore
-        if abs(vix_diff) > bp_variation:
-            print_warning(
-                f"BP usage is dangerously high given VIX level of {round(trade.price)}!"  # type: ignore
-            )  # type: ignore
+    console.print(table)

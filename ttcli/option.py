@@ -21,17 +21,15 @@ from tastytrade.utils import TastytradeError, get_tasty_monthly
 from datetime import datetime
 
 from ttcli.utils import (
+    ZERO,
     RenewableSession,
     get_confirmation,
     is_monthly,
     listen_events,
     print_error,
     print_warning,
+    round_to_tick_size,
 )
-
-
-def round_to_width(x, base=Decimal(1)):
-    return base * round(x / base)
 
 
 def choose_expiration(
@@ -129,6 +127,7 @@ async def call(
         return
 
     sesh = RenewableSession()
+    symbol = symbol.upper()
     if symbol[0] == "/":  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
         if dte is not None:
@@ -138,7 +137,7 @@ async def call(
             )
         else:
             subchain = choose_futures_expiration(chain, weeklies)
-        tick_size = subchain.tick_sizes[0].value
+        ticks = subchain.tick_sizes
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
         if dte is not None:
@@ -150,10 +149,10 @@ async def call(
             )
         else:
             subchain = choose_expiration(chain, weeklies)
-        tick_size = chain.tick_sizes[0].value
-    precision: int = tick_size.as_tuple().exponent  # type: ignore
-    precision = abs(precision) if precision < 0 else 0
-    precision_str = f".{precision}f"
+        ticks = chain.tick_sizes
+
+    def fmt(x: Decimal | None) -> Decimal:
+        return round_to_tick_size(x, ticks) if x is not None else ZERO
 
     async with DXLinkStreamer(sesh) as streamer:
         if not strike:
@@ -180,9 +179,13 @@ async def call(
             s.call_streamer_symbol for s in subchain.strikes if s.strike_price == strike
         )
         if width:
-            spread_strike = next(
-                s for s in subchain.strikes if s.strike_price == strike + width
-            )
+            try:
+                spread_strike = next(
+                    s for s in subchain.strikes if s.strike_price == strike + width
+                )
+            except StopIteration:
+                print_error(f"Unable to locate option at strike {strike + width}!")
+                return
             dxfeeds = [strike_symbol, spread_strike.call_streamer_symbol]
             quote_dict = await listen_events(dxfeeds, Quote, streamer)
             bid = (
@@ -198,9 +201,7 @@ async def call(
             quote = await streamer.get_event(Quote)
             bid = quote.bidPrice
             ask = quote.askPrice
-        mid = (bid + ask) / Decimal(2)  # type: ignore
-        mid = round_to_width(mid, tick_size)
-
+        mid = fmt((bid + ask) / Decimal(2))  # type: ignore
         console = Console()
         if width:
             table = Table(
@@ -219,9 +220,7 @@ async def call(
         table.add_column("Bid", style="green", justify="center")
         table.add_column("Mid", justify="center")
         table.add_column("Ask", style="red", justify="center")
-        table.add_row(
-            f"{bid:{precision_str}}", f"{mid:{precision_str}}", f"{ask:{precision_str}}"
-        )
+        table.add_row(f"{fmt(bid)}", f"{fmt(mid)}", f"{fmt(ask)}")
         console.print(table)
 
         price = input("Please enter a limit price per quantity (default mid): ")
@@ -271,10 +270,14 @@ async def call(
             time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
             order_type=OrderType.LIMIT,
             legs=legs,
-            price=price * m,
+            price=fmt(price * m),
         )
         acc = sesh.get_account()
-        data = acc.place_order(sesh, order, dry_run=True)
+        try:
+            data = acc.place_order(sesh, order, dry_run=True)
+        except TastytradeError as e:
+            print_error(str(e))
+            return
 
         nl = acc.get_balances(sesh).net_liquidating_value
         bp = data.buying_power_effect.change_in_buying_power
@@ -299,10 +302,10 @@ async def call(
         table.add_row(
             f"{quantity:+}",
             symbol,
-            f"${strike:{precision_str}}",
+            f"${fmt(strike)}",
             "CALL",
             f"{subchain.expiration_date}",
-            f"${price:{precision_str}}",
+            f"${fmt(price)}",
             f"${bp:.2f}",
             f"{percent:.2f}%",
             f"${fees:.2f}",
@@ -311,7 +314,7 @@ async def call(
             table.add_row(
                 f"{-quantity:+}",
                 symbol,
-                f"${spread_strike.strike_price:{precision_str}}",  # type: ignore
+                f"${fmt(spread_strike.strike_price)}",  # type: ignore
                 "CALL",
                 f"{subchain.expiration_date}",
                 "-",
@@ -324,11 +327,13 @@ async def call(
         if data.warnings:
             for warning in data.warnings:
                 print_warning(warning.message)
-        warn_percent = sesh.config.getint(
-            "order", "bp-warn-above-percent", fallback=None
+        warn_percent = sesh.config.getfloat(
+            "portfolio", "bp-max-percent-per-position", fallback=None
         )
         if warn_percent and percent > warn_percent:
-            print_warning(f"Buying power usage is above target of {warn_percent}%!")
+            print_warning(
+                f"Buying power usage is above per-position target of {warn_percent}%!"
+            )
         if get_confirmation("Send order? Y/n "):
             acc.place_order(sesh, order, dry_run=False)
 
@@ -370,6 +375,7 @@ async def put(
         return
 
     sesh = RenewableSession()
+    symbol = symbol.upper()
     if symbol[0] == "/":  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
         if dte is not None:
@@ -379,7 +385,7 @@ async def put(
             )
         else:
             subchain = choose_futures_expiration(chain, weeklies)
-        tick_size = subchain.tick_sizes[0].value
+        ticks = subchain.tick_sizes
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
         if dte is not None:
@@ -391,10 +397,10 @@ async def put(
             )
         else:
             subchain = choose_expiration(chain, weeklies)
-        tick_size = chain.tick_sizes[0].value
-    precision: int = tick_size.as_tuple().exponent  # type: ignore
-    precision = abs(precision) if precision < 0 else 0
-    precision_str = f".{precision}f"
+        ticks = chain.tick_sizes
+
+    def fmt(x: Decimal | None) -> Decimal:
+        return round_to_tick_size(x, ticks) if x is not None else ZERO
 
     async with DXLinkStreamer(sesh) as streamer:
         if not strike:
@@ -421,9 +427,13 @@ async def put(
             s.put_streamer_symbol for s in subchain.strikes if s.strike_price == strike
         )
         if width:
-            spread_strike = next(
-                s for s in subchain.strikes if s.strike_price == strike - width
-            )
+            try:
+                spread_strike = next(
+                    s for s in subchain.strikes if s.strike_price == strike - width
+                )
+            except StopIteration:
+                print_error(f"Unable to locate option at strike {strike - width}!")
+                return
             dxfeeds = [strike_symbol, spread_strike.put_streamer_symbol]
             quote_dict = await listen_events(dxfeeds, Quote, streamer)
             bid = (
@@ -439,9 +449,7 @@ async def put(
             quote = await streamer.get_event(Quote)
             bid = quote.bidPrice
             ask = quote.askPrice
-        mid = (bid + ask) / Decimal(2)  # type: ignore
-        mid = round_to_width(mid, tick_size)
-
+        mid = fmt((bid + ask) / Decimal(2))  # type: ignore
         console = Console()
         if width:
             table = Table(
@@ -460,9 +468,7 @@ async def put(
         table.add_column("Bid", style="green", justify="center")
         table.add_column("Mid", justify="center")
         table.add_column("Ask", style="red", justify="center")
-        table.add_row(
-            f"{bid:{precision_str}}", f"{mid:{precision_str}}", f"{ask:{precision_str}}"
-        )
+        table.add_row(f"{fmt(bid)}", f"{fmt(mid)}", f"{fmt(ask)}")
         console.print(table)
 
         price = input("Please enter a limit price per quantity (default mid): ")
@@ -510,7 +516,7 @@ async def put(
             time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
             order_type=OrderType.LIMIT,
             legs=legs,
-            price=price * m,
+            price=fmt(price * m),
         )
         acc = sesh.get_account()
 
@@ -543,10 +549,10 @@ async def put(
         table.add_row(
             f"{quantity:+}",
             symbol,
-            f"${strike:{precision_str}}",
+            f"${fmt(strike)}",
             "PUT",
             f"{subchain.expiration_date}",
-            f"${price:{precision_str}}",
+            f"${fmt(price)}",
             f"${bp:.2f}",
             f"{percent:.2f}%",
             f"${fees:.2f}",
@@ -555,7 +561,7 @@ async def put(
             table.add_row(
                 f"{-quantity:+}",
                 symbol,
-                f"${spread_strike.strike_price:{precision_str}}",  # type: ignore
+                f"${fmt(spread_strike.strike_price)}",  # type: ignore
                 "PUT",
                 f"{subchain.expiration_date}",
                 "-",
@@ -568,11 +574,13 @@ async def put(
         if data.warnings:
             for warning in data.warnings:
                 print_warning(warning.message)
-        warn_percent = sesh.config.getint(
-            "order", "bp-warn-above-percent", fallback=None
+        warn_percent = sesh.config.getfloat(
+            "portfolio", "bp-max-percent-per-position", fallback=None
         )
         if warn_percent and percent > warn_percent:
-            print_warning(f"Buying power usage is above target of {warn_percent}%!")
+            print_warning(
+                f"Buying power usage is above per-position target of {warn_percent}%!"
+            )
         if get_confirmation("Send order? Y/n "):
             acc.place_order(sesh, order, dry_run=False)
 
@@ -616,17 +624,18 @@ async def strangle(
         return
 
     sesh = RenewableSession()
+    symbol = symbol.upper()
     if symbol[0] == "/":  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
         subchain = choose_futures_expiration(chain, weeklies)
-        tick_size = subchain.tick_sizes[0].value
+        ticks = subchain.tick_sizes
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
         subchain = choose_expiration(chain, weeklies)
-        tick_size = chain.tick_sizes[0].value
-    precision: int = tick_size.as_tuple().exponent  # type: ignore
-    precision = abs(precision) if precision < 0 else 0
-    precision_str = f".{precision}f"
+        ticks = chain.tick_sizes
+
+    def fmt(x: Decimal | None) -> Decimal:
+        return round_to_tick_size(x, ticks) if x is not None else ZERO
 
     async with DXLinkStreamer(sesh) as streamer:
         if delta is not None:
@@ -663,16 +672,29 @@ async def strangle(
             call_strike = next(s for s in subchain.strikes if s.strike_price == call)
 
         if width:
-            put_spread_strike = next(
-                s
-                for s in subchain.strikes
-                if s.strike_price == put_strike.strike_price - width
-            )
-            call_spread_strike = next(
-                s
-                for s in subchain.strikes
-                if s.strike_price == call_strike.strike_price + width
-            )
+            try:
+                put_spread_strike = next(
+                    s
+                    for s in subchain.strikes
+                    if s.strike_price == put_strike.strike_price - width
+                )
+            except StopIteration:
+                print_error(
+                    f"Unable to locate option at strike {put_strike.strike_price + width}!"
+                )
+                return
+            try:
+                call_spread_strike = next(
+                    s
+                    for s in subchain.strikes
+                    if s.strike_price == call_strike.strike_price + width
+                )
+            except StopIteration:
+                print_error(
+                    f"Unable to locate option at strike {call_strike.strike_price + width}!"
+                )
+                return
+
             dxfeeds = [
                 call_strike.call_streamer_symbol,
                 put_strike.put_streamer_symbol,
@@ -697,8 +719,7 @@ async def strangle(
             quote_dict = await listen_events(dxfeeds, Quote, streamer)
             bid = sum([q.bidPrice for q in quote_dict.values()])  # type: ignore
             ask = sum([q.askPrice for q in quote_dict.values()])  # type: ignore
-        mid = (bid + ask) / Decimal(2)
-        mid = round_to_width(mid, tick_size)
+        mid = fmt((bid + ask) / Decimal(2))
 
         console = Console()
         if width:
@@ -718,9 +739,7 @@ async def strangle(
         table.add_column("Bid", style="green", justify="center")
         table.add_column("Mid", justify="center")
         table.add_column("Ask", style="red", justify="center")
-        table.add_row(
-            f"{bid:{precision_str}}", f"{mid:{precision_str}}", f"{ask:{precision_str}}"
-        )
+        table.add_row(f"{fmt(bid)}", f"{fmt(mid)}", f"{fmt(ask)}")
         console.print(table)
 
         price = input("Please enter a limit price per quantity (default mid): ")
@@ -810,7 +829,7 @@ async def strangle(
         table.add_row(
             f"{quantity:+}",
             symbol,
-            f"${put_strike.strike_price:{precision_str}}",
+            f"${fmt(put_strike.strike_price)}",
             "PUT",
             f"{subchain.expiration_date}",
             f"${price:.2f}",
@@ -821,7 +840,7 @@ async def strangle(
         table.add_row(
             f"{quantity:+}",
             symbol,
-            f"${call_strike.strike_price:{precision_str}}",
+            f"${fmt(call_strike.strike_price)}",
             "CALL",
             f"{subchain.expiration_date}",
             "-",
@@ -833,7 +852,7 @@ async def strangle(
             table.add_row(
                 f"{-quantity:+}",
                 symbol,
-                f"${put_spread_strike.strike_price:{precision_str}}",  # type: ignore
+                f"${fmt(put_spread_strike.strike_price)}",  # type: ignore
                 "PUT",
                 f"{subchain.expiration_date}",
                 "-",
@@ -844,7 +863,7 @@ async def strangle(
             table.add_row(
                 f"{-quantity:+}",
                 symbol,
-                f"${call_spread_strike.strike_price:{precision_str}}",  # type: ignore
+                f"${fmt(call_spread_strike.strike_price)}",  # type: ignore
                 "CALL",
                 f"{subchain.expiration_date}",
                 "-",
@@ -858,10 +877,12 @@ async def strangle(
             for warning in data.warnings:
                 print_warning(warning.message)
         warn_percent = sesh.config.getint(
-            "order", "bp-warn-above-percent", fallback=None
+            "portfolio", "bp-max-percent-per-position", fallback=None
         )
         if warn_percent and percent > warn_percent:
-            print_warning(f"Buying power usage is above target of {warn_percent}%!")
+            print_warning(
+                f"Buying power usage is above per-position target of {warn_percent}%!"
+            )
         if get_confirmation("Send order? Y/n "):
             acc.place_order(sesh, order, dry_run=False)
 
@@ -880,17 +901,19 @@ async def strangle(
 @click.argument("symbol", type=str)
 async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
     sesh = RenewableSession()
+    symbol = symbol.upper()
     async with DXLinkStreamer(sesh) as streamer:
         if symbol[0] == "/":  # futures options
             chain = NestedFutureOptionChain.get_chain(sesh, symbol)
             subchain = choose_futures_expiration(chain, weeklies)
-            precision: int = subchain.tick_sizes[0].value.as_tuple().exponent  # type: ignore
+            ticks = subchain.tick_sizes
         else:
             chain = NestedOptionChain.get_chain(sesh, symbol)
-            precision: int = chain.tick_sizes[0].value.as_tuple().exponent  # type: ignore
+            ticks = chain.tick_sizes
             subchain = choose_expiration(chain, weeklies)
-        precision = abs(precision) if precision < 0 else 0
-        precision_str = f".{precision}f"
+
+        def fmt(x: Decimal | None) -> Decimal:
+            return round_to_tick_size(x, ticks) if x is not None else ZERO
 
         console = Console()
         table = Table(
@@ -934,16 +957,15 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
 
         if symbol[0] == "/":  # futures options
             future = Future.get_future(sesh, subchain.underlying_symbol)  # type: ignore
-            await streamer.subscribe(Quote, [future.streamer_symbol])
+            await streamer.subscribe(Trade, [future.streamer_symbol])
         else:
-            await streamer.subscribe(Quote, [symbol])
-        quote = await streamer.get_event(Quote)
-        strike_price = (quote.bidPrice + quote.askPrice) / 2  # type: ignore
+            await streamer.subscribe(Trade, [symbol])
+        trade = await streamer.get_event(Trade)
 
         subchain.strikes.sort(key=lambda s: s.strike_price)
         if strikes * 2 < len(subchain.strikes):
             mid_index = 0
-            while subchain.strikes[mid_index].strike_price < strike_price:
+            while subchain.strikes[mid_index].strike_price < trade.price:  # type: ignore
                 mid_index += 1
             all_strikes = subchain.strikes[mid_index - strikes : mid_index + strikes]
         else:
@@ -956,18 +978,18 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
         # take into account the symbol we subscribed to
         streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
 
-        async def listen_quotes(quote: Quote, symbol: str) -> dict[str, Quote]:
-            quote_dict = {symbol: quote}
-            await streamer.subscribe(Quote, dxfeeds)
-            async for quote in streamer.listen(Quote):
-                if quote.bidPrice is not None and quote.askPrice is not None:
-                    quote_dict[quote.eventSymbol] = quote
-                    if len(quote_dict) == len(dxfeeds) + 1:
-                        return quote_dict
-            return quote_dict  # unreachable
+        async def listen_trades(trade: Trade, symbol: str) -> dict[str, Trade]:
+            trade_dict = {symbol: trade}
+            await streamer.subscribe(Trade, dxfeeds)
+            async for trade in streamer.listen(Trade):
+                if trade.price is not None:
+                    trade_dict[trade.eventSymbol] = trade
+                    if len(trade_dict) == len(dxfeeds) + 1:
+                        return trade_dict
+            return trade_dict  # unreachable
 
         greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
-        quote_task = asyncio.create_task(listen_quotes(quote, streamer_symbol))
+        quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
         tasks = [greeks_task, quote_task]
         if show_oi:
             summary_task = asyncio.create_task(
@@ -975,7 +997,7 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
             )
             tasks.append(summary_task)
         if show_volume:
-            trade_task = asyncio.create_task(listen_events(dxfeeds, Trade, streamer))
+            trade_task = asyncio.create_task(listen_trades(trade, streamer_symbol))
             tasks.append(trade_task)
         await asyncio.gather(*tasks)  # wait for all tasks
         greeks_dict = greeks_task.result()
@@ -991,11 +1013,11 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
             call_bid = quote_dict[strike.call_streamer_symbol].bidPrice
             call_ask = quote_dict[strike.call_streamer_symbol].askPrice
             row = [
-                f"{call_bid:{precision_str}}",
-                f"{call_ask:{precision_str}}",
-                f"{strike.strike_price:{precision_str}}",
-                f"{put_bid:{precision_str}}",
-                f"{put_ask:{precision_str}}",
+                f"{fmt(call_bid)}",
+                f"{fmt(call_ask)}",
+                f"{fmt(strike.strike_price)}",
+                f"{fmt(put_bid)}",
+                f"{fmt(put_ask)}",
             ]
             prepend = []
             if show_delta:
