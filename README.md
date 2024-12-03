@@ -1,3 +1,7 @@
+[![PyPI](https://img.shields.io/pypi/v/tastytrade-cli)](https://pypi.org/project/tastytrade-cli)
+[![Downloads](https://static.pepy.tech/badge/tastytrade-cli)](https://pepy.tech/project/tastytrade-cli)
+[![Release)](https://img.shields.io/github/v/release/tastyware/tastytrade-cli?label=release%20notes)](https://github.com/tastyware/tastytrade-cli/releases)
+
 # tastytrade-cli
 
 An easy-to-use command line interface for Tastytrade!
