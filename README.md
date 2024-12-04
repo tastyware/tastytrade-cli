@@ -21,14 +21,12 @@ $ pip install tastytrade-cli
 
 Available commands:
 ```
-tt option              view chains, buy/sell equities and futures options
-tt pf (portfolio)      view & close positions, check margin and analyze BP usage
-tt stock               buy, sell, and analyze stock
+tt option              view chains, buy or sell equities and futures options
+tt pf (portfolio)      view and close positions, check margin and analyze BP usage
+tt trade               buy or sell stocks/ETFs, crypto, and futures
 ```
 Unavailable commands pending development:
 ```
-tt crypto              buy, sell, and analyze cryptocurrencies
-tt future              buy, sell, and analyze futures
 tt order               view, replace, and cancel orders
 tt wl (watchlist)      view current prices and other data for symbols in your watchlists
 ```

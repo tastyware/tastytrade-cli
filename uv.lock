@@ -934,7 +934,7 @@ wheels = [
 
 [[package]]
 name = "tastytrade"
-version = "9.2"
+version = "9.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -942,9 +942,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7e/e2/dfe31d53b3bd1a43553ef406f3a427eb179846812ca1e939535853a98f4b/tastytrade-9.2.tar.gz", hash = "sha256:0a67aea7da0d39f98babf377b274756251e54f2dd7ec35889f26d7c13280689f", size = 117936 }
+sdist = { url = "https://files.pythonhosted.org/packages/56/2f/007a3c34053faf446dbab8b4fdb8a6225e2cc7ebb308c112cf12f7683ec6/tastytrade-9.3.tar.gz", hash = "sha256:16497a1074cfb9573feb32cb06927dd70c9afc45968e468e4b1e82bc78dee2a9", size = 118037 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/15/e7544a1d7d7433f5c33af9d261ef7ea10c472cb5e2afb4ac189b5ddcc7a5/tastytrade-9.2-py3-none-any.whl", hash = "sha256:fedd92a34d0697dbc4bc37c6942954d766b79eca6ab1f3e67a1a262bb770cdcc", size = 47790 },
+    { url = "https://files.pythonhosted.org/packages/71/e9/099a81451ccaef1acc8d42fbcae68f968e4ef46914094a7b83ec6a1e5e9d/tastytrade-9.3-py3-none-any.whl", hash = "sha256:4eac9e998d7950dc5335f3fc1f04cbc3ea46f9b35b63d42e215c2816ce6c0f9e", size = 47771 },
 ]
 
 [[package]]
@@ -968,7 +968,7 @@ dev = [
 requires-dist = [
     { name = "asyncclick", specifier = ">=8.1.7.2" },
     { name = "rich", specifier = ">=13.8.1" },
-    { name = "tastytrade", specifier = ">=9.2" },
+    { name = "tastytrade", specifier = ">=9.3" },
 ]
 
 [package.metadata.requires-dev]

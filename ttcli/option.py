@@ -1,6 +1,5 @@
 import asyncio
 from decimal import Decimal
-from typing import Optional
 
 import asyncclick as click
 from rich.console import Console
@@ -17,12 +16,12 @@ from tastytrade.instruments import (
     Option,
 )
 from tastytrade.order import NewOrder, OrderAction, OrderTimeInForce, OrderType
-from tastytrade.utils import TastytradeError, get_tasty_monthly
+from tastytrade.utils import TastytradeError, get_tasty_monthly, today_in_new_york
 from datetime import datetime
 
 from ttcli.utils import (
-    ZERO,
     RenewableSession,
+    conditional_color,
     get_confirmation,
     is_monthly,
     listen_events,
@@ -109,12 +108,12 @@ async def option():
 async def call(
     symbol: str,
     quantity: int,
-    strike: Optional[Decimal] = None,
-    width: Optional[int] = None,
+    strike: Decimal | None = None,
+    width: int | None = None,
     gtc: bool = False,
     weeklies: bool = False,
-    delta: Optional[int] = None,
-    dte: Optional[int] = None,
+    delta: int | None = None,
+    dte: int | None = None,
 ):
     if strike is not None and delta is not None:
         print_error("Must specify either delta or strike, but not both.")
@@ -150,14 +149,11 @@ async def call(
         else:
             subchain = choose_expiration(chain, weeklies)
         ticks = chain.tick_sizes
-
-    def fmt(x: Decimal | None) -> Decimal:
-        return round_to_tick_size(x, ticks) if x is not None else ZERO
+    fmt = lambda x: round_to_tick_size(x, ticks)
 
     async with DXLinkStreamer(sesh) as streamer:
         if not strike:
             dxfeeds = [s.call_streamer_symbol for s in subchain.strikes]
-            await streamer.subscribe(Greeks, dxfeeds)
             greeks_dict = await listen_events(dxfeeds, Greeks, streamer)
             greeks = list(greeks_dict.values())
 
@@ -172,7 +168,7 @@ async def call(
             strike = next(
                 s.strike_price
                 for s in subchain.strikes
-                if s.call_streamer_symbol == selected.eventSymbol
+                if s.call_streamer_symbol == selected.event_symbol  # type: ignore
             )
 
         strike_symbol = next(
@@ -189,19 +185,19 @@ async def call(
             dxfeeds = [strike_symbol, spread_strike.call_streamer_symbol]
             quote_dict = await listen_events(dxfeeds, Quote, streamer)
             bid = (
-                quote_dict[strike_symbol].bidPrice  # type: ignore
-                - quote_dict[spread_strike.call_streamer_symbol].askPrice  # type: ignore
+                quote_dict[strike_symbol].bid_price
+                - quote_dict[spread_strike.call_streamer_symbol].ask_price
             )
             ask = (
-                quote_dict[strike_symbol].askPrice  # type: ignore
-                - quote_dict[spread_strike.call_streamer_symbol].bidPrice  # type: ignore
+                quote_dict[strike_symbol].ask_price
+                - quote_dict[spread_strike.call_streamer_symbol].bid_price
             )
         else:
             await streamer.subscribe(Quote, [strike_symbol])
             quote = await streamer.get_event(Quote)
-            bid = quote.bidPrice
-            ask = quote.askPrice
-        mid = fmt((bid + ask) / Decimal(2))  # type: ignore
+            bid = quote.bid_price
+            ask = quote.ask_price
+        mid = fmt((bid + ask) / Decimal(2))
         console = Console()
         if width:
             table = Table(
@@ -281,7 +277,7 @@ async def call(
 
         nl = acc.get_balances(sesh).net_liquidating_value
         bp = data.buying_power_effect.change_in_buying_power
-        percent = bp / nl * Decimal(100)
+        percent = abs(bp) / nl * Decimal(100)
         fees = data.fee_calculation.total_fees  # type: ignore
 
         table = Table(
@@ -305,10 +301,10 @@ async def call(
             f"${fmt(strike)}",
             "CALL",
             f"{subchain.expiration_date}",
-            f"${fmt(price)}",
-            f"${bp:.2f}",
+            conditional_color(fmt(price), round=False),
+            conditional_color(bp),
             f"{percent:.2f}%",
-            f"${fees:.2f}",
+            conditional_color(fees),
         )
         if width:
             table.add_row(
@@ -357,12 +353,12 @@ async def call(
 async def put(
     symbol: str,
     quantity: int,
-    strike: Optional[Decimal] = None,
-    width: Optional[int] = None,
+    strike: Decimal | None = None,
+    width: int | None = None,
     gtc: bool = False,
     weeklies: bool = False,
-    delta: Optional[int] = None,
-    dte: Optional[int] = None,
+    delta: int | None = None,
+    dte: int | None = None,
 ):
     if strike is not None and delta is not None:
         print_error("Must specify either delta or strike, but not both.")
@@ -398,14 +394,11 @@ async def put(
         else:
             subchain = choose_expiration(chain, weeklies)
         ticks = chain.tick_sizes
-
-    def fmt(x: Decimal | None) -> Decimal:
-        return round_to_tick_size(x, ticks) if x is not None else ZERO
+    fmt = lambda x: round_to_tick_size(x, ticks)
 
     async with DXLinkStreamer(sesh) as streamer:
         if not strike:
             dxfeeds = [s.put_streamer_symbol for s in subchain.strikes]
-            await streamer.subscribe(Greeks, dxfeeds)
             greeks_dict = await listen_events(dxfeeds, Greeks, streamer)
             greeks = list(greeks_dict.values())
 
@@ -420,7 +413,7 @@ async def put(
             strike = next(
                 s.strike_price
                 for s in subchain.strikes
-                if s.put_streamer_symbol == selected.eventSymbol
+                if s.put_streamer_symbol == selected.event_symbol  # type: ignore
             )
 
         strike_symbol = next(
@@ -437,19 +430,19 @@ async def put(
             dxfeeds = [strike_symbol, spread_strike.put_streamer_symbol]
             quote_dict = await listen_events(dxfeeds, Quote, streamer)
             bid = (
-                quote_dict[strike_symbol].bidPrice  # type: ignore
-                - quote_dict[spread_strike.put_streamer_symbol].askPrice  # type: ignore
+                quote_dict[strike_symbol].bid_price
+                - quote_dict[spread_strike.put_streamer_symbol].ask_price
             )
             ask = (
-                quote_dict[strike_symbol].askPrice  # type: ignore
-                - quote_dict[spread_strike.put_streamer_symbol].bidPrice  # type: ignore
+                quote_dict[strike_symbol].ask_price
+                - quote_dict[spread_strike.put_streamer_symbol].bid_price
             )
         else:
             await streamer.subscribe(Quote, [strike_symbol])
             quote = await streamer.get_event(Quote)
-            bid = quote.bidPrice
-            ask = quote.askPrice
-        mid = fmt((bid + ask) / Decimal(2))  # type: ignore
+            bid = quote.bid_price
+            ask = quote.ask_price
+        mid = fmt((bid + ask) / Decimal(2))
         console = Console()
         if width:
             table = Table(
@@ -528,7 +521,7 @@ async def put(
 
         nl = acc.get_balances(sesh).net_liquidating_value
         bp = data.buying_power_effect.change_in_buying_power
-        percent = bp / nl * Decimal(100)
+        percent = abs(bp) / nl * Decimal(100)
         fees = data.fee_calculation.total_fees  # type: ignore
 
         table = Table(
@@ -552,10 +545,10 @@ async def put(
             f"${fmt(strike)}",
             "PUT",
             f"{subchain.expiration_date}",
-            f"${fmt(price)}",
-            f"${bp:.2f}",
+            conditional_color(fmt(price), round=False),
+            conditional_color(bp),
             f"{percent:.2f}%",
-            f"${fees:.2f}",
+            conditional_color(fees),
         )
         if width:
             table.add_row(
@@ -597,6 +590,7 @@ async def put(
     type=int,
     help="Turns the order into an iron condor with the given width.",
 )
+@click.option("--dte", type=int, help="Days to expiration for the option.")
 @click.option("--gtc", is_flag=True, help="Place a GTC order instead of a day order.")
 @click.option(
     "--weeklies", is_flag=True, help="Show all expirations, not just monthlies."
@@ -606,12 +600,13 @@ async def put(
 async def strangle(
     symbol: str,
     quantity: int,
-    call: Optional[Decimal] = None,
-    width: Optional[int] = None,
+    call: Decimal | None = None,
+    width: int | None = None,
+    dte: int | None = None,
     gtc: bool = False,
     weeklies: bool = False,
-    delta: Optional[int] = None,
-    put: Optional[Decimal] = None,
+    delta: int | None = None,
+    put: Decimal | None = None,
 ):
     if (call is not None or put is not None) and delta is not None:
         print_error("Must specify either delta or strike, but not both.")
@@ -627,15 +622,27 @@ async def strangle(
     symbol = symbol.upper()
     if symbol[0] == "/":  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-        subchain = choose_futures_expiration(chain, weeklies)
+        if dte is not None:
+            subchain = min(
+                chain.option_chains[0].expirations,
+                key=lambda exp: abs(exp.days_to_expiration - dte),
+            )
+        else:
+            subchain = choose_futures_expiration(chain, weeklies)
         ticks = subchain.tick_sizes
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
-        subchain = choose_expiration(chain, weeklies)
+        if dte is not None:
+            subchain = min(
+                chain.expirations,
+                key=lambda exp: abs(
+                    (exp.expiration_date - today_in_new_york()).days - dte
+                ),
+            )
+        else:
+            subchain = choose_expiration(chain, weeklies)
         ticks = chain.tick_sizes
-
-    def fmt(x: Decimal | None) -> Decimal:
-        return round_to_tick_size(x, ticks) if x is not None else ZERO
+    fmt = lambda x: round_to_tick_size(x, ticks)
 
     async with DXLinkStreamer(sesh) as streamer:
         if delta is not None:
@@ -643,22 +650,24 @@ async def strangle(
             call_dxf = [s.call_streamer_symbol for s in subchain.strikes]
             dxfeeds = put_dxf + call_dxf
             greeks_dict = await listen_events(dxfeeds, Greeks, streamer)
-            put_greeks = [v for v in greeks_dict.values() if v.eventSymbol in put_dxf]
-            call_greeks = [v for v in greeks_dict.values() if v.eventSymbol in call_dxf]
+            put_greeks = [v for v in greeks_dict.values() if v.event_symbol in put_dxf]
+            call_greeks = [
+                v for v in greeks_dict.values() if v.event_symbol in call_dxf
+            ]
 
             lowest = 100
             selected_put = None
             for g in put_greeks:
                 diff = abs(g.delta * 100 + delta)
                 if diff < lowest:
-                    selected_put = g.eventSymbol
+                    selected_put = g.event_symbol
                     lowest = diff
             lowest = 100
             selected_call = None
             for g in call_greeks:
                 diff = abs(g.delta * 100 - delta)
                 if diff < lowest:
-                    selected_call = g.eventSymbol
+                    selected_call = g.event_symbol
                     lowest = diff
             # set strike with the closest delta
             put_strike = next(
@@ -703,22 +712,22 @@ async def strangle(
             ]
             quote_dict = await listen_events(dxfeeds, Quote, streamer)
             bid = (
-                quote_dict[call_strike.call_streamer_symbol].bidPrice  # type: ignore
-                + quote_dict[put_strike.put_streamer_symbol].bidPrice  # type: ignore
-                - quote_dict[put_spread_strike.put_streamer_symbol].askPrice  # type: ignore
-                - quote_dict[call_spread_strike.call_streamer_symbol].askPrice  # type: ignore
+                quote_dict[call_strike.call_streamer_symbol].bid_price
+                + quote_dict[put_strike.put_streamer_symbol].bid_price
+                - quote_dict[put_spread_strike.put_streamer_symbol].ask_price
+                - quote_dict[call_spread_strike.call_streamer_symbol].ask_price
             )
             ask = (
-                quote_dict[call_strike.call_streamer_symbol].askPrice  # type: ignore
-                + quote_dict[put_strike.put_streamer_symbol].askPrice  # type: ignore
-                - quote_dict[put_spread_strike.put_streamer_symbol].bidPrice  # type: ignore
-                - quote_dict[call_spread_strike.call_streamer_symbol].bidPrice  # type: ignore
+                quote_dict[call_strike.call_streamer_symbol].ask_price
+                + quote_dict[put_strike.put_streamer_symbol].ask_price
+                - quote_dict[put_spread_strike.put_streamer_symbol].bid_price
+                - quote_dict[call_spread_strike.call_streamer_symbol].bid_price
             )
         else:
             dxfeeds = [put_strike.put_streamer_symbol, call_strike.call_streamer_symbol]
             quote_dict = await listen_events(dxfeeds, Quote, streamer)
-            bid = sum([q.bidPrice for q in quote_dict.values()])  # type: ignore
-            ask = sum([q.askPrice for q in quote_dict.values()])  # type: ignore
+            bid = sum([q.bid_price for q in quote_dict.values()])
+            ask = sum([q.ask_price for q in quote_dict.values()])
         mid = fmt((bid + ask) / Decimal(2))
 
         console = Console()
@@ -813,7 +822,7 @@ async def strangle(
 
         nl = acc.get_balances(sesh).net_liquidating_value
         bp = data.buying_power_effect.change_in_buying_power
-        percent = bp / nl * Decimal(100)
+        percent = abs(bp) / nl * Decimal(100)
         fees = data.fee_calculation.total_fees  # type: ignore
 
         table = Table(header_style="bold", title_style="bold", title="Order Review")
@@ -832,10 +841,10 @@ async def strangle(
             f"${fmt(put_strike.strike_price)}",
             "PUT",
             f"{subchain.expiration_date}",
-            f"${price:.2f}",
-            f"${bp:.2f}",
+            conditional_color(fmt(price), round=False),
+            conditional_color(bp),
             f"{percent:.2f}%",
-            f"${fees:.2f}",
+            conditional_color(fees),
         )
         table.add_row(
             f"{quantity:+}",
@@ -891,6 +900,7 @@ async def strangle(
 @click.option(
     "-w", "--weeklies", is_flag=True, help="Show all expirations, not just monthlies."
 )
+@click.option("--dte", type=int, help="Days to expiration for the option.")
 @click.option(
     "-s",
     "--strikes",
@@ -899,21 +909,36 @@ async def strangle(
     help="The number of strikes to fetch above and below the spot price.",
 )
 @click.argument("symbol", type=str)
-async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
+async def chain(
+    symbol: str, strikes: int = 8, weeklies: bool = False, dte: int | None = None
+):
     sesh = RenewableSession()
     symbol = symbol.upper()
+
     async with DXLinkStreamer(sesh) as streamer:
         if symbol[0] == "/":  # futures options
             chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-            subchain = choose_futures_expiration(chain, weeklies)
+            if dte is not None:
+                subchain = min(
+                    chain.option_chains[0].expirations,
+                    key=lambda exp: abs(exp.days_to_expiration - dte),
+                )
+            else:
+                subchain = choose_futures_expiration(chain, weeklies)
             ticks = subchain.tick_sizes
         else:
             chain = NestedOptionChain.get_chain(sesh, symbol)
+            if dte is not None:
+                subchain = min(
+                    chain.expirations,
+                    key=lambda exp: abs(
+                        (exp.expiration_date - today_in_new_york()).days - dte
+                    ),
+                )
+            else:
+                subchain = choose_expiration(chain, weeklies)
             ticks = chain.tick_sizes
-            subchain = choose_expiration(chain, weeklies)
-
-        def fmt(x: Decimal | None) -> Decimal:
-            return round_to_tick_size(x, ticks) if x is not None else ZERO
+        fmt = lambda x: round_to_tick_size(x, ticks)
 
         console = Console()
         table = Table(
@@ -982,10 +1007,9 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
             trade_dict = {symbol: trade}
             await streamer.subscribe(Trade, dxfeeds)
             async for trade in streamer.listen(Trade):
-                if trade.price is not None:
-                    trade_dict[trade.eventSymbol] = trade
-                    if len(trade_dict) == len(dxfeeds) + 1:
-                        return trade_dict
+                trade_dict[trade.event_symbol] = trade
+                if len(trade_dict) == len(dxfeeds) + 1:
+                    return trade_dict
             return trade_dict  # unreachable
 
         greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
@@ -1008,10 +1032,10 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
             trade_dict = trade_task.result()  # type: ignore
 
         for i, strike in enumerate(all_strikes):
-            put_bid = quote_dict[strike.put_streamer_symbol].bidPrice
-            put_ask = quote_dict[strike.put_streamer_symbol].askPrice
-            call_bid = quote_dict[strike.call_streamer_symbol].bidPrice
-            call_ask = quote_dict[strike.call_streamer_symbol].askPrice
+            put_bid = quote_dict[strike.put_streamer_symbol].bid_price
+            put_ask = quote_dict[strike.put_streamer_symbol].ask_price
+            call_bid = quote_dict[strike.call_streamer_symbol].bid_price
+            call_ask = quote_dict[strike.call_streamer_symbol].ask_price
             row = [
                 f"{fmt(call_bid)}",
                 f"{fmt(call_ask)}",
@@ -1033,12 +1057,12 @@ async def chain(symbol: str, strikes: int = 8, weeklies: bool = False):
                 row.append(f"{abs(greeks_dict[strike.call_streamer_symbol].theta):.2f}")
             if show_oi:
                 prepend.append(
-                    f"{summary_dict[strike.put_streamer_symbol].openInterest}"  # type: ignore
+                    f"{summary_dict[strike.put_streamer_symbol].open_interest}"  # type: ignore
                 )
-                row.append(f"{summary_dict[strike.call_streamer_symbol].openInterest}")  # type: ignore
+                row.append(f"{summary_dict[strike.call_streamer_symbol].open_interest}")  # type: ignore
             if show_volume:
-                prepend.append(f"{trade_dict[strike.put_streamer_symbol].dayVolume}")  # type: ignore
-                row.append(f"{trade_dict[strike.call_streamer_symbol].dayVolume}")  # type: ignore
+                prepend.append(f"{trade_dict[strike.put_streamer_symbol].day_volume}")  # type: ignore
+                row.append(f"{trade_dict[strike.call_streamer_symbol].day_volume}")  # type: ignore
 
             prepend.reverse()
             table.add_row(*(prepend + row), end_section=(i == strikes - 1))

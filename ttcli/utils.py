@@ -10,7 +10,6 @@ from typing import Any, Type
 from httpx import AsyncClient, Client
 from rich import print as rich_print
 from tastytrade import Account, DXLinkStreamer, Session
-from tastytrade.dxfeed import Quote
 from tastytrade.instruments import TickSize
 from tastytrade.streamer import U
 
@@ -34,6 +33,17 @@ def print_warning(msg: str):
     rich_print(f"[light_coral]Warning: {msg}[/light_coral]")
 
 
+def conditional_color(value: Decimal, dollars: bool = True, round: bool = True) -> str:
+    d = "$" if dollars else ""
+    if round:
+        return (
+            f"[red]-{d}{abs(value):.2f}[/red]"
+            if value < 0
+            else f"[green]{d}{value:.2f}[/green]"
+        )
+    return f"[red]-{d}{abs(value)}[/red]" if value < 0 else f"[green]{d}{value}[/green]"
+
+
 def round_to_width(x, base=Decimal(1)):
     return base * round(x / base)
 
@@ -51,9 +61,7 @@ async def listen_events(
     event_dict = {}
     await streamer.subscribe(event_class, dxfeeds)
     async for event in streamer.listen(event_class):
-        if event_class == Quote and event.bidPrice is None:  # type: ignore
-            continue
-        event_dict[event.eventSymbol] = event
+        event_dict[event.event_symbol] = event
         if len(event_dict) == len(dxfeeds):
             return event_dict
     return event_dict  # unreachable

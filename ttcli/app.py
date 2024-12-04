@@ -6,7 +6,7 @@ import asyncclick as click
 
 from ttcli.option import option
 from ttcli.portfolio import portfolio
-from ttcli.stock import stock
+from ttcli.trade import trade
 from ttcli.utils import CONTEXT_SETTINGS, VERSION, config_path
 
 
@@ -19,7 +19,7 @@ async def app():
 def main():
     app.add_command(option)
     app.add_command(portfolio, name="pf")
-    app.add_command(stock)
+    app.add_command(trade)
 
     # create ttcli.cfg if it doesn't exist
     if not os.path.exists(config_path):
