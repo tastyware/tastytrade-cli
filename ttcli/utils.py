@@ -14,7 +14,7 @@ from tastytrade.instruments import TickSize
 from tastytrade.streamer import U
 
 logger = logging.getLogger(__name__)
-VERSION = "0.3"
+VERSION = "0.4"
 ZERO = Decimal(0)
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}

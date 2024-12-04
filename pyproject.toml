@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tastytrade-cli"
-version = "0.3"
+version = "0.4"
 description = "An easy-to-use command line interface for Tastytrade!"
 readme = "README.md"
 requires-python = ">=3.10"
