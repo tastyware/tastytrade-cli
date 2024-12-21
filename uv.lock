@@ -628,6 +628,15 @@ wheels = [
 ]
 
 [[package]]
+name = "py-gnuplot"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pandas" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/62/ce/847095b5c8d4141a7136065ad90ea21faeeb9f246327bc4053fce867e56a/py-gnuplot-1.2.1.tar.gz", hash = "sha256:39ee63ccd4990e90278bbd183a1c619e271eeea596312c8dc03ae0eb78d3ac5d", size = 32248 }
+
+[[package]]
 name = "pycparser"
 version = "2.22"
 source = { registry = "https://pypi.org/simple" }
@@ -934,7 +943,7 @@ wheels = [
 
 [[package]]
 name = "tastytrade"
-version = "9.3"
+version = "9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -942,17 +951,18 @@ dependencies = [
     { name = "pydantic" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/2f/007a3c34053faf446dbab8b4fdb8a6225e2cc7ebb308c112cf12f7683ec6/tastytrade-9.3.tar.gz", hash = "sha256:16497a1074cfb9573feb32cb06927dd70c9afc45968e468e4b1e82bc78dee2a9", size = 118037 }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/04/0e155e8f08e2541318bf53410c8f7df90f01695c72aa29092ae3c809a0f3/tastytrade-9.4.tar.gz", hash = "sha256:e1ffddb399284e00e330bee6a160c0f885a66982c0fcef589f6a4eb2f869a80e", size = 114897 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/71/e9/099a81451ccaef1acc8d42fbcae68f968e4ef46914094a7b83ec6a1e5e9d/tastytrade-9.3-py3-none-any.whl", hash = "sha256:4eac9e998d7950dc5335f3fc1f04cbc3ea46f9b35b63d42e215c2816ce6c0f9e", size = 47771 },
+    { url = "https://files.pythonhosted.org/packages/0e/c3/3e69f9f8cd8d93f730d233f4a8c598ffb9c5b22c15515d4933ef53aaaaae/tastytrade-9.4-py3-none-any.whl", hash = "sha256:adb31f3531e2906d24a8397c5e49a116ede9192e12416cbaf606222e0ded641f", size = 49442 },
 ]
 
 [[package]]
 name = "tastytrade-cli"
-version = "0.3"
+version = "0.5"
 source = { editable = "." }
 dependencies = [
     { name = "asyncclick" },
+    { name = "py-gnuplot" },
     { name = "rich" },
     { name = "tastytrade" },
 ]
@@ -967,8 +977,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncclick", specifier = ">=8.1.7.2" },
+    { name = "py-gnuplot", specifier = ">=1.2.1" },
     { name = "rich", specifier = ">=13.8.1" },
-    { name = "tastytrade", specifier = ">=9.3" },
+    { name = "tastytrade", specifier = ">=9.4" },
 ]
 
 [package.metadata.requires-dev]

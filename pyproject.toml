@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tastytrade-cli"
-version = "0.4"
+version = "0.5"
 description = "An easy-to-use command line interface for Tastytrade!"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,8 +15,9 @@ authors = [
 
 dependencies = [
     "asyncclick>=8.1.7.2",
+    "py-gnuplot>=1.2.1",
     "rich>=13.8.1",
-    "tastytrade>=9.3",
+    "tastytrade>=9.5",
 ]
 
 [project.urls]

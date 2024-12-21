@@ -1,4 +1,6 @@
 import asyncio
+import time
+from collections import defaultdict
 from decimal import Decimal
 
 import asyncclick as click
@@ -16,7 +18,7 @@ from tastytrade.instruments import (
     Option,
 )
 from tastytrade.order import NewOrder, OrderAction, OrderTimeInForce, OrderType
-from tastytrade.utils import TastytradeError, get_tasty_monthly, today_in_new_york
+from tastytrade.utils import TastytradeError, get_tasty_monthly
 from datetime import datetime
 
 from ttcli.utils import (
@@ -32,17 +34,27 @@ from ttcli.utils import (
 
 
 def choose_expiration(
-    chain: NestedOptionChain, include_weeklies: bool = False
+    chain: NestedOptionChain,
+    dte: int | None,
+    weeklies: bool,
 ) -> NestedOptionChainExpiration:
-    exps = [e for e in chain.expirations]
-    if not include_weeklies:
-        exps = [e for e in exps if is_monthly(e.expiration_date)]
+    if weeklies:
+        exps = chain.expirations
+    else:
+        exps = [e for e in chain.expirations if is_monthly(e.expiration_date)]
+    if dte is not None:
+        return min(
+            exps,
+            key=lambda exp: abs(
+                (exp.expiration_date - datetime.now().date()).days - dte
+            ),
+        )
     exps.sort(key=lambda e: e.expiration_date)
-    default = get_tasty_monthly()
-    default_option: NestedOptionChainExpiration
+    tasty_monthly = get_tasty_monthly()
+    default = exps[0]
     for i, exp in enumerate(exps):
-        if exp.expiration_date == default:
-            default_option = exp
+        if exp.expiration_date == tasty_monthly:
+            default = exp
             print(f"{i + 1}) {exp.expiration_date} (default)")
         else:
             print(f"{i + 1}) {exp.expiration_date}")
@@ -52,19 +64,26 @@ def choose_expiration(
             raw = input("Please choose an expiration: ")
             choice = int(raw)
         except ValueError:
-            return default_option  # type: ignore
+            return default
 
     return exps[choice - 1]
 
 
 def choose_futures_expiration(
-    chain: NestedFutureOptionChain, include_weeklies: bool = False
+    chain: NestedFutureOptionChain,
+    dte: int | None,
+    weeklies: bool,
 ) -> NestedFutureOptionChainExpiration:
     subchain = chain.option_chains[0]
-    if include_weeklies:
-        exps = [e for e in subchain.expirations]
+    if weeklies:
+        exps = subchain.expirations
     else:
         exps = [e for e in subchain.expirations if e.expiration_type != "Weekly"]
+    if dte is not None:
+        return min(
+            exps,
+            key=lambda exp: abs(exp.days_to_expiration - dte),
+        )
     exps.sort(key=lambda e: e.expiration_date)
     # find closest to 45 DTE
     default = min(exps, key=lambda e: abs(e.days_to_expiration - 45))
@@ -126,28 +145,16 @@ async def call(
         return
 
     sesh = RenewableSession()
+    if dte is None:
+        dte = sesh.config.getint("option", "default-dte", fallback=None)
     symbol = symbol.upper()
     if symbol[0] == "/":  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-        if dte is not None:
-            subchain = min(
-                chain.option_chains[0].expirations,
-                key=lambda exp: abs(exp.days_to_expiration - dte),
-            )
-        else:
-            subchain = choose_futures_expiration(chain, weeklies)
+        subchain = choose_futures_expiration(chain, dte, weeklies)
         ticks = subchain.tick_sizes
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
-        if dte is not None:
-            subchain = min(
-                chain.expirations,
-                key=lambda exp: abs(
-                    (exp.expiration_date - datetime.now().date()).days - dte
-                ),
-            )
-        else:
-            subchain = choose_expiration(chain, weeklies)
+        subchain = choose_expiration(chain, dte, weeklies)
         ticks = chain.tick_sizes
     fmt = lambda x: round_to_tick_size(x, ticks)
 
@@ -372,27 +379,15 @@ async def put(
 
     sesh = RenewableSession()
     symbol = symbol.upper()
+    if dte is None:
+        dte = sesh.config.getint("option", "default-dte", fallback=None)
     if symbol[0] == "/":  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-        if dte is not None:
-            subchain = min(
-                chain.option_chains[0].expirations,
-                key=lambda exp: abs(exp.days_to_expiration - dte),
-            )
-        else:
-            subchain = choose_futures_expiration(chain, weeklies)
+        subchain = choose_futures_expiration(chain, dte, weeklies)
         ticks = subchain.tick_sizes
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
-        if dte is not None:
-            subchain = min(
-                chain.expirations,
-                key=lambda exp: abs(
-                    (exp.expiration_date - datetime.now().date()).days - dte
-                ),
-            )
-        else:
-            subchain = choose_expiration(chain, weeklies)
+        subchain = choose_expiration(chain, dte, weeklies)
         ticks = chain.tick_sizes
     fmt = lambda x: round_to_tick_size(x, ticks)
 
@@ -620,27 +615,15 @@ async def strangle(
 
     sesh = RenewableSession()
     symbol = symbol.upper()
+    if dte is None:
+        dte = sesh.config.getint("option", "default-dte", fallback=None)
     if symbol[0] == "/":  # futures options
         chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-        if dte is not None:
-            subchain = min(
-                chain.option_chains[0].expirations,
-                key=lambda exp: abs(exp.days_to_expiration - dte),
-            )
-        else:
-            subchain = choose_futures_expiration(chain, weeklies)
+        subchain = choose_futures_expiration(chain, dte, weeklies)
         ticks = subchain.tick_sizes
     else:
         chain = NestedOptionChain.get_chain(sesh, symbol)
-        if dte is not None:
-            subchain = min(
-                chain.expirations,
-                key=lambda exp: abs(
-                    (exp.expiration_date - today_in_new_york()).days - dte
-                ),
-            )
-        else:
-            subchain = choose_expiration(chain, weeklies)
+        subchain = choose_expiration(chain, dte, weeklies)
         ticks = chain.tick_sizes
     fmt = lambda x: round_to_tick_size(x, ticks)
 
@@ -901,42 +884,29 @@ async def strangle(
     "-w", "--weeklies", is_flag=True, help="Show all expirations, not just monthlies."
 )
 @click.option("--dte", type=int, help="Days to expiration for the option.")
-@click.option(
-    "-s",
-    "--strikes",
-    type=int,
-    default=8,
-    help="The number of strikes to fetch above and below the spot price.",
-)
+@click.option("-s", "--strikes", type=int, help="The number of strikes to fetch.")
 @click.argument("symbol", type=str)
 async def chain(
-    symbol: str, strikes: int = 8, weeklies: bool = False, dte: int | None = None
+    symbol: str,
+    strikes: int | None = None,
+    weeklies: bool = False,
+    dte: int | None = None,
 ):
     sesh = RenewableSession()
     symbol = symbol.upper()
 
+    if dte is None:
+        dte = sesh.config.getint("option", "default-dte", fallback=None)
+    if strikes is None:
+        strikes = sesh.config.getint("option", "strike-count", fallback=16)
     async with DXLinkStreamer(sesh) as streamer:
         if symbol[0] == "/":  # futures options
             chain = NestedFutureOptionChain.get_chain(sesh, symbol)
-            if dte is not None:
-                subchain = min(
-                    chain.option_chains[0].expirations,
-                    key=lambda exp: abs(exp.days_to_expiration - dte),
-                )
-            else:
-                subchain = choose_futures_expiration(chain, weeklies)
+            subchain = choose_futures_expiration(chain, dte, weeklies)
             ticks = subchain.tick_sizes
         else:
             chain = NestedOptionChain.get_chain(sesh, symbol)
-            if dte is not None:
-                subchain = min(
-                    chain.expirations,
-                    key=lambda exp: abs(
-                        (exp.expiration_date - today_in_new_york()).days - dte
-                    ),
-                )
-            else:
-                subchain = choose_expiration(chain, weeklies)
+            subchain = choose_expiration(chain, dte, weeklies)
             ticks = chain.tick_sizes
         fmt = lambda x: round_to_tick_size(x, ticks)
 
@@ -988,13 +958,17 @@ async def chain(
         trade = await streamer.get_event(Trade)
 
         subchain.strikes.sort(key=lambda s: s.strike_price)
-        if strikes * 2 < len(subchain.strikes):
-            mid_index = 0
+        mid_index = 0
+        if strikes < len(subchain.strikes):
             while subchain.strikes[mid_index].strike_price < trade.price:  # type: ignore
                 mid_index += 1
-            all_strikes = subchain.strikes[mid_index - strikes : mid_index + strikes]
+            half = strikes // 2
+            all_strikes = subchain.strikes[mid_index - half : mid_index + half]
         else:
             all_strikes = subchain.strikes
+        mid_index = 0
+        while all_strikes[mid_index].strike_price < trade.price:  # type: ignore
+            mid_index += 1
 
         dxfeeds = [s.call_streamer_symbol for s in all_strikes] + [
             s.put_streamer_symbol for s in all_strikes
@@ -1002,15 +976,19 @@ async def chain(
 
         # take into account the symbol we subscribed to
         streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
+        trade_dict = defaultdict(lambda: 0)
+        trade_dict[streamer_symbol] = trade.day_volume or 0
 
-        async def listen_trades(trade: Trade, symbol: str) -> dict[str, Trade]:
-            trade_dict = {symbol: trade}
+        async def listen_trades(dxfeeds, trade_dict, streamer):
             await streamer.subscribe(Trade, dxfeeds)
+            end_time = time.time() + 3
             async for trade in streamer.listen(Trade):
                 trade_dict[trade.event_symbol] = trade
                 if len(trade_dict) == len(dxfeeds) + 1:
-                    return trade_dict
-            return trade_dict  # unreachable
+                    return
+                if time.time() > end_time:
+                    return
+            return
 
         greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
         quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
@@ -1021,15 +999,15 @@ async def chain(
             )
             tasks.append(summary_task)
         if show_volume:
-            trade_task = asyncio.create_task(listen_trades(trade, streamer_symbol))
+            trade_task = asyncio.create_task(
+                listen_trades(dxfeeds, trade_dict, streamer)
+            )
             tasks.append(trade_task)
         await asyncio.gather(*tasks)  # wait for all tasks
         greeks_dict = greeks_task.result()
         quote_dict = quote_task.result()
         if show_oi:
             summary_dict = summary_task.result()  # type: ignore
-        if show_volume:
-            trade_dict = trade_task.result()  # type: ignore
 
         for i, strike in enumerate(all_strikes):
             put_bid = quote_dict[strike.put_streamer_symbol].bid_price
@@ -1061,10 +1039,10 @@ async def chain(
                 )
                 row.append(f"{summary_dict[strike.call_streamer_symbol].open_interest}")  # type: ignore
             if show_volume:
-                prepend.append(f"{trade_dict[strike.put_streamer_symbol].day_volume}")  # type: ignore
-                row.append(f"{trade_dict[strike.call_streamer_symbol].day_volume}")  # type: ignore
+                prepend.append(f"{trade_dict[strike.put_streamer_symbol]}")  # type: ignore
+                row.append(f"{trade_dict[strike.call_streamer_symbol]}")  # type: ignore
 
             prepend.reverse()
-            table.add_row(*(prepend + row), end_section=(i == strikes - 1))
+            table.add_row(*(prepend + row), end_section=(i == mid_index - 1))
 
         console.print(table)
