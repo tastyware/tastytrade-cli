@@ -52,13 +52,15 @@ def round_to_tick_size(price: Decimal, ticks: list[TickSize]) -> Decimal:
     for tick in ticks:
         if tick.threshold is None or price < tick.threshold:
             return round_to_width(price, tick.value)
-    return price  # unreachable
+    return price
 
 
 async def listen_events(
     dxfeeds: list[str], event_class: Type[U], streamer: DXLinkStreamer
 ) -> dict[str, U]:
     event_dict = {}
+    if not dxfeeds:
+        return event_dict
     await streamer.subscribe(event_class, dxfeeds)
     async for event in streamer.listen(event_class):
         event_dict[event.event_symbol] = event

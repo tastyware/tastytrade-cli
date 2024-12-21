@@ -5,6 +5,7 @@ from importlib.resources import as_file, files
 import asyncclick as click
 
 from ttcli.option import option
+from ttcli.order import order
 from ttcli.portfolio import portfolio
 from ttcli.trade import trade
 from ttcli.utils import CONTEXT_SETTINGS, VERSION, config_path
@@ -18,6 +19,7 @@ async def app():
 
 def main():
     app.add_command(option)
+    app.add_command(order)
     app.add_command(portfolio, name="pf")
     app.add_command(trade)
 
