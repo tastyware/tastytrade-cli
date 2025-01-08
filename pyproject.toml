@@ -15,9 +15,8 @@ authors = [
 
 dependencies = [
     "asyncclick>=8.1.7.2",
-    "py-gnuplot>=1.2.1",
     "rich>=13.8.1",
-    "tastytrade>=9.5",
+    "tastytrade>=9.6",
 ]
 
 [project.urls]
@@ -37,6 +36,11 @@ ignore = [
 
 [project.scripts]
 tt = "ttcli.app:main"
+
+[project.optional-dependencies]
+plot = [
+    "py-gnuplot>=1.2.1",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["ttcli"]

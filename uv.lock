@@ -943,7 +943,7 @@ wheels = [
 
 [[package]]
 name = "tastytrade"
-version = "9.4"
+version = "9.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -951,9 +951,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/04/0e155e8f08e2541318bf53410c8f7df90f01695c72aa29092ae3c809a0f3/tastytrade-9.4.tar.gz", hash = "sha256:e1ffddb399284e00e330bee6a160c0f885a66982c0fcef589f6a4eb2f869a80e", size = 114897 }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/dc/78ad5353463c83e3874c4f2efe6393838b1381a9a3077b1dc0ae7ab6e29c/tastytrade-9.6.tar.gz", hash = "sha256:82bc6a9ef7097f28602e0917ed88ffe7084d9a074efd9ecf5e979bf92adbaae0", size = 115201 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/c3/3e69f9f8cd8d93f730d233f4a8c598ffb9c5b22c15515d4933ef53aaaaae/tastytrade-9.4-py3-none-any.whl", hash = "sha256:adb31f3531e2906d24a8397c5e49a116ede9192e12416cbaf606222e0ded641f", size = 49442 },
+    { url = "https://files.pythonhosted.org/packages/79/7c/33b58981dff059c946244a40e01d3d764aed13a885d9b70d790b8914bfcc/tastytrade-9.6-py3-none-any.whl", hash = "sha256:7940d07161c698870cbff9cfdee56a9e63a13a34d1838a93cec2d338455861d0", size = 49778 },
 ]
 
 [[package]]
@@ -962,9 +962,13 @@ version = "0.5"
 source = { editable = "." }
 dependencies = [
     { name = "asyncclick" },
-    { name = "py-gnuplot" },
     { name = "rich" },
     { name = "tastytrade" },
+]
+
+[package.optional-dependencies]
+plot = [
+    { name = "py-gnuplot" },
 ]
 
 [package.dev-dependencies]
@@ -977,9 +981,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncclick", specifier = ">=8.1.7.2" },
-    { name = "py-gnuplot", specifier = ">=1.2.1" },
+    { name = "py-gnuplot", marker = "extra == 'plot'", specifier = ">=1.2.1" },
     { name = "rich", specifier = ">=13.8.1" },
-    { name = "tastytrade", specifier = ">=9.4" },
+    { name = "tastytrade", specifier = ">=9.6" },
 ]
 
 [package.metadata.requires-dev]
