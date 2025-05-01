@@ -1,157 +1,153 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Annotated
 
-import asyncclick as click
 from rich.console import Console
 from rich.table import Table
-from tastytrade import DXLinkStreamer
-from tastytrade.dxfeed import Quote
-from tastytrade.instruments import Cryptocurrency, Equity, Future, FutureProduct
-from tastytrade.order import (
-    InstrumentType,
-    NewOrder,
-    OrderAction,
-    OrderTimeInForce,
-    OrderType,
-)
+from tastytrade.order import InstrumentType, NewOrder, OrderStatus
 from tastytrade.utils import TastytradeError
+from typer import Option, Typer
 
 from ttcli.utils import (
     ZERO,
     RenewableSession,
     conditional_color,
+    conditional_quantity,
     get_confirmation,
     print_error,
-    print_warning,
-    round_to_tick_size,
-    round_to_width,
 )
 
-
-@click.group(chain=True, help="View, adjust, or cancel orders.")
-async def order():
-    pass
+order = Typer(help="List, adjust, or cancel orders.")
 
 
-@order.command(help="List, adjust, or cancel orders.")
-@click.option("--gtc", is_flag=True, help="Place a GTC order instead of a day order.")
-@click.argument("symbol", type=str)
-@click.argument("quantity", type=int)
-async def live(symbol: str, quantity: int, gtc: bool = False):
+@order.command(help="List, adjust, or cancel live orders.")
+def live(
+    all: Annotated[
+        bool, Option("--all", help="Show orders for all accounts, not just one.")
+    ] = False,
+):
     sesh = RenewableSession()
-    symbol = symbol.upper()
-    equity = Equity.get_equity(sesh, symbol)
-    fmt = lambda x: round_to_tick_size(x, equity.tick_sizes or [])
-
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe(Quote, [symbol])
-        quote = await streamer.get_event(Quote)
-        bid = quote.bid_price
-        ask = quote.ask_price
-        mid = fmt((bid + ask) / Decimal(2))
-
-        console = Console()
-        table = Table(
-            show_header=True,
-            header_style="bold",
-            title_style="bold",
-            title=f"Quote for {symbol}",
-        )
-        table.add_column("Bid", style="green", justify="center")
-        table.add_column("Mid", justify="center")
-        table.add_column("Ask", style="red", justify="center")
-        table.add_row(f"{fmt(bid)}", f"{fmt(mid)}", f"{fmt(ask)}")
-        console.print(table)
-
-        price = input("Please enter a limit price per share (default mid): ")
-        price = mid if not price else Decimal(price)
-
-        leg = equity.build_leg(
-            Decimal(abs(quantity)),
-            OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN,
-        )
-        m = 1 if quantity < 0 else -1
-        order = NewOrder(
-            time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
-            order_type=OrderType.LIMIT,
-            legs=[leg],
-            price=price * m,
-        )
+    if all:
+        orders = []
+        for acc in sesh.accounts:
+            orders.extend(acc.get_live_orders(sesh))
+    else:
         acc = sesh.get_account()
+        orders = acc.get_live_orders(sesh)
+    orders = [
+        o
+        for o in orders
+        if o.status == OrderStatus.LIVE or o.status == OrderStatus.RECEIVED
+    ]
+    console = Console()
+    table = Table(
+        show_header=True,
+        header_style="bold",
+        title_style="bold",
+        title="Live Orders",
+    )
+    table.add_column("#", justify="left")
+    if all:
+        table.add_column("Account")
+    table.add_column("Date/Time")
+    table.add_column("Order ID")
+    table.add_column("Symbol")
+    table.add_column("Type")
+    table.add_column("TIF")
+    table.add_column("Price", justify="right")
+    # leg info
+    table.add_column("Qty", justify="right")
+    table.add_column("Legs")
+
+    for i, order in enumerate(orders):
+        row = [
+            str(i + 1),
+            order.updated_at.strftime("%Y-%m-%d %H:%M"),
+            str(order.id),
+            order.underlying_symbol,
+            order.order_type.value,
+            order.time_in_force.value,
+            conditional_color(order.price) if order.price else "--",
+            conditional_quantity(order.legs[0].quantity or ZERO, order.legs[0].action),
+            order.legs[0].symbol,
+        ]
+        if all:
+            row.insert(1, order.account_number)
+        table.add_row(*row, end_section=(len(order.legs) == 1))
+        for i in range(1, len(order.legs)):
+            row = [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                conditional_quantity(
+                    order.legs[i].quantity or ZERO, order.legs[i].action
+                ),
+                order.legs[i].symbol,
+            ]
+            if all:
+                row.insert(1, "")
+            table.add_row(*row, end_section=(i == len(order.legs) - 1))
+    console.print(table)
+    if not get_confirmation("Modify an order? y/N ", default=False):
+        return
+    if len(orders) > 1:
+        order_id = input("Enter the number (not the order ID) of the order to modify: ")
+        if not order_id:
+            return
+        order = orders[int(order_id) - 1]
+    else:
+        print("Auto-selected the only order available.")
+        order = orders[0]
+    acc = next(a for a in sesh.accounts if a.account_number == order.account_number)
+    price = input("Enter a new price for the order, or nothing to cancel it: $")
+    if not price:  # cancel the order
         try:
-            data = acc.place_order(sesh, order, dry_run=True)
+            acc.delete_order(sesh, order.id)
+            print(f"Order {order.id} cancelled successfully!")
         except TastytradeError as e:
             print_error(str(e))
-            return
-
-        nl = acc.get_balances(sesh).net_liquidating_value
-        bp = data.buying_power_effect.change_in_buying_power
-        percent = abs(bp) / nl * Decimal(100)
-        fees = data.fee_calculation.total_fees  # type: ignore
-
-        table = Table(
-            show_header=True,
-            header_style="bold",
-            title_style="bold",
-            title="Order Review",
-        )
-        table.add_column("Quantity", justify="center")
-        table.add_column("Symbol", justify="center")
-        table.add_column("Price", justify="center")
-        table.add_column("BP", justify="center")
-        table.add_column("BP %", justify="center")
-        table.add_column("Fees", justify="center")
-        table.add_row(
-            f"{quantity:+}",
-            symbol,
-            conditional_color(fmt(price), round=False),
-            conditional_color(bp),
-            f"{percent:.2f}%",
-            conditional_color(fees),
-        )
-        console.print(table)
-
-        if data.warnings:
-            for warning in data.warnings:
-                print_warning(warning.message)
-        warn_percent = sesh.config.getfloat(
-            "portfolio", "bp-max-percent-per-position", fallback=None
-        )
-        if warn_percent and percent > warn_percent:
-            print_warning(
-                f"Buying power usage is above per-position target of {warn_percent}%!"
-            )
-        if get_confirmation("Send order? Y/n "):
-            acc.place_order(sesh, order, dry_run=False)
+        return
+    sign = -1 if (order.price or 0) < 0 else 1
+    # modify the order, ensuring price keeps the same sign
+    new_order = NewOrder(
+        time_in_force=order.time_in_force,
+        order_type=order.order_type,
+        legs=order.legs,
+        gtc_date=order.gtc_date,
+        stop_trigger=Decimal(order.stop_trigger) if order.stop_trigger else None,
+        price=sign * abs(Decimal(price)),
+    )
+    try:
+        acc.replace_order(sesh, order.id, new_order)
+    except TastytradeError as e:
+        print_error(str(e))
 
 
 @order.command(help="Show order history.")
-@click.option(
-    "--start-date",
-    type=click.DateTime(["%Y-%m-%d"]),
-    help="The start date for the search date range.",
-)
-@click.option(
-    "--end-date",
-    type=click.DateTime(["%Y-%m-%d"]),
-    help="The end date for the search date range.",
-)
-@click.option("-s", "--symbol", type=str, help="Filter by underlying symbol.")
-@click.option(
-    "-t",
-    "--type",
-    type=click.Choice(list(InstrumentType)),
-    help="Filter by instrument type.",
-)  # type: ignore
-@click.option(
-    "--asc", is_flag=True, help="Sort by ascending time instead of descending."
-)
-async def history(
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
-    symbol: str | None = None,
-    type: InstrumentType | None = None,
-    asc: bool = False,
+def history(
+    start_date: Annotated[
+        datetime | None,
+        Option("--start", help="The start date for the search date range."),
+    ] = None,
+    end_date: Annotated[
+        datetime | None, Option("--end", help="The end date for the search date range.")
+    ] = None,
+    symbol: Annotated[
+        str | None, Option("--symbol", "-s", help="Filter by underlying symbol.")
+    ] = None,
+    type: Annotated[
+        InstrumentType | None, Option("--type", "-t", help="Filter by instrument type.")
+    ] = None,
+    asc: Annotated[
+        bool, Option("--asc", help="Sort by ascending time instead of descending.")
+    ] = False,
+    status: Annotated[
+        list[OrderStatus] | None, Option("--status", help="Filter by order status.")
+    ] = None,
 ):
     sesh = RenewableSession()
     acc = sesh.get_account()
@@ -162,6 +158,7 @@ async def history(
         underlying_symbol=symbol if symbol and symbol[0] != "/" else None,
         futures_symbol=symbol if symbol and symbol[0] == "/" else None,
         underlying_instrument_type=type,
+        statuses=status,
     )
     if asc:
         history.reverse()
@@ -173,26 +170,29 @@ async def history(
         title=f"Order history for account {acc.nickname} ({acc.account_number})",
     )
     table.add_column("Date/Time")
-    # table.add_column("Order ID")  # option
-    table.add_column("Root Symbol")
-    table.add_column("Type")
-    # table.add_column("Time in Force")  # option
-    table.add_column("Price", justify="right")
-    table.add_column("Status")
-    # leg info
-    table.add_column("Quantity")
-    table.add_column("Action")
+    table.add_column("Order ID")
     table.add_column("Symbol")
+    table.add_column("Type")
+    table.add_column("TIF")
+    table.add_column("Status")
+    table.add_column("Price", justify="right")
+    # leg info
+    table.add_column("Qty", justify="right")
+    table.add_column("Legs")
     for order in history:
         table.add_row(
             *[
                 order.updated_at.strftime("%Y-%m-%d %H:%M"),
+                str(order.id),
                 order.underlying_symbol,
                 order.order_type.value,
-                conditional_color(order.price or ZERO),
+                order.time_in_force.value,
                 order.status.value,
-                str(order.legs[0].quantity),
-                order.legs[0].action.value,
+                conditional_color(order.price) if order.price else "--",
+                str(
+                    (order.legs[0].quantity or 0)
+                    * (-1 if "Sell" in order.legs[0].action.value else 1)
+                ),
                 order.legs[0].symbol,
             ],
             end_section=(len(order.legs) == 1),
@@ -205,8 +205,12 @@ async def history(
                     "",
                     "",
                     "",
-                    str(order.legs[i].quantity),
-                    order.legs[i].action.value,
+                    "",
+                    "",
+                    str(
+                        (order.legs[i].quantity or 0)
+                        * (-1 if "Sell" in order.legs[i].action.value else 1)
+                    ),
                     order.legs[i].symbol,
                 ],
                 end_section=(i == len(order.legs) - 1),

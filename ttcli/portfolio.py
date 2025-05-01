@@ -2,9 +2,8 @@ import asyncio
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
-from typing import cast
+from typing import Annotated, cast
 
-import asyncclick as click
 from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
@@ -15,9 +14,10 @@ from tastytrade.instruments import (
     Equity,
     Future,
     FutureOption,
-    Option,
+    Option as TastytradeOption,
     TickSize,
 )
+from tastytrade.market_data import get_market_data
 from tastytrade.metrics import MarketMetricInfo, get_market_metrics
 from tastytrade.order import (
     InstrumentType,
@@ -25,12 +25,14 @@ from tastytrade.order import (
     OrderAction,
     OrderTimeInForce,
     OrderType,
-    TradeableTastytradeJsonDataclass,
+    TradeableTastytradeData,
 )
 from tastytrade.utils import TastytradeError, today_in_new_york
+from typer import Option
 
 from ttcli.utils import (
     ZERO,
+    AsyncTyper,
     RenewableSession,
     conditional_color,
     get_confirmation,
@@ -40,10 +42,7 @@ from ttcli.utils import (
     round_to_tick_size,
 )
 
-
-@click.group(help="View positions and stats for your portfolio.")
-async def portfolio():
-    pass
+portfolio = AsyncTyper(help="View positions and stats for your portfolio.")
 
 
 def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
@@ -61,9 +60,10 @@ def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
     return " ".join(indicators) if indicators else ""
 
 
-@portfolio.command(help="View your current positions.")
-@click.option("--all", is_flag=True, help="Show positions for all accounts.")
-async def positions(all: bool = False):
+@portfolio.command(help="View/close your current positions.")
+async def positions(
+    all: Annotated[bool, Option(help="Show positions for all accounts.")] = False,
+):
     sesh = RenewableSession()
     console = Console()
     table = Table(header_style="bold", title_style="bold", title="Positions")
@@ -84,32 +84,26 @@ async def positions(all: bool = False):
     options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY_OPTION
     ]
-    options = Option.get_options(sesh, options_symbols) if options_symbols else []
+    options = TastytradeOption.get(sesh, options_symbols) if options_symbols else []
     options_dict = {o.symbol: o for o in options}
     future_options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.FUTURE_OPTION
     ]
     future_options = (
-        FutureOption.get_future_options(sesh, future_options_symbols)
-        if future_options_symbols
-        else []
+        FutureOption.get(sesh, future_options_symbols) if future_options_symbols else []
     )
     future_options_dict = {fo.symbol: fo for fo in future_options}
     futures_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.FUTURE
     ] + [fo.underlying_symbol for fo in future_options]
-    futures = Future.get_futures(sesh, futures_symbols) if futures_symbols else []
+    futures = Future.get(sesh, futures_symbols) if futures_symbols else []
     futures_dict = {f.symbol: f for f in futures}
     crypto_symbols = [
         p.symbol
         for p in positions
         if p.instrument_type == InstrumentType.CRYPTOCURRENCY
     ]
-    cryptos = (
-        Cryptocurrency.get_cryptocurrencies(sesh, crypto_symbols)
-        if crypto_symbols
-        else []
-    )
+    cryptos = Cryptocurrency.get(sesh, crypto_symbols) if crypto_symbols else []
     crypto_dict = {c.symbol: c for c in cryptos}
     greeks_symbols = [o.streamer_symbol for o in options] + [
         fo.streamer_symbol for fo in future_options
@@ -117,7 +111,7 @@ async def positions(all: bool = False):
     equity_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY
     ] + [o.underlying_symbol for o in options]
-    equities = Equity.get_equities(sesh, equity_symbols)
+    equities = Equity.get(sesh, equity_symbols)
     equity_dict = {e.symbol: e for e in equities}
     all_symbols = (
         list(
@@ -189,9 +183,9 @@ async def positions(all: bool = False):
     table.add_column("Net Liq", justify="right")
     table.add_column("Indicators", justify="center")
     sums = defaultdict(lambda: ZERO)
-    closing: dict[int, TradeableTastytradeJsonDataclass] = {}
+    closing: dict[int, TradeableTastytradeData] = {}
     for i, pos in enumerate(positions):
-        row = [f"{i+1}"]
+        row = [f"{i + 1}"]
         mark = pos.mark or ZERO
         mark_price = pos.mark_price or ZERO
         m = 1 if pos.quantity_direction == "Long" else -1
@@ -289,8 +283,7 @@ async def positions(all: bool = False):
             pnl_day = day_change * pos.quantity * pos.multiplier
         else:
             print_warning(
-                f"Skipping {pos.symbol}, unknown instrument type "
-                f"{pos.instrument_type}!"
+                f"Skipping {pos.symbol}, unknown instrument type {pos.instrument_type}!"
             )
             continue
         if pos.created_at.date() == today:
@@ -436,32 +429,23 @@ async def positions(all: bool = False):
 
 
 @portfolio.command(help="View your previous positions.")
-@click.option(
-    "--start-date",
-    type=click.DateTime(["%Y-%m-%d"]),
-    help="The start date for the search date range.",
-)
-@click.option(
-    "--end-date",
-    type=click.DateTime(["%Y-%m-%d"]),
-    help="The end date for the search date range.",
-)
-@click.option("-s", "--symbol", type=str, help="Filter by underlying symbol.")
-@click.option(
-    "-t",
-    "--type",
-    type=click.Choice(list(InstrumentType)),
-    help="Filter by instrument type.",
-)  # type: ignore
-@click.option(
-    "--asc", is_flag=True, help="Sort by ascending time instead of descending."
-)
-async def history(
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
-    symbol: str | None = None,
-    type: InstrumentType | None = None,
-    asc: bool = False,
+def history(
+    start_date: Annotated[
+        datetime | None,
+        Option("--start", help="The start date for the search date range."),
+    ] = None,
+    end_date: Annotated[
+        datetime | None, Option("--end", help="The end date for the search date range.")
+    ] = None,
+    symbol: Annotated[
+        str | None, Option("--symbol", "-s", help="Filter by underlying symbol.")
+    ] = None,
+    type: Annotated[
+        InstrumentType | None, Option("--type", "-t", help="Filter by instrument type.")
+    ] = None,
+    asc: Annotated[
+        bool, Option(help="Sort by ascending time instead of descending.")
+    ] = False,
 ):
     sesh = RenewableSession()
     acc = sesh.get_account()
@@ -529,7 +513,7 @@ async def history(
 
 
 @portfolio.command(help="View margin usage by position for an account.")
-async def margin():
+def margin():
     sesh = RenewableSession()
     acc = sesh.get_account()
     margin = acc.get_margin_requirements(sesh)
@@ -570,27 +554,25 @@ async def margin():
             f"{bp_percent}%",
         ]
     )
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe(Trade, ["VIX"])
-        trade = await streamer.get_event(Trade)
-        console.print(table)
-        bp_variation = sesh.config.getint(
-            "portfolio", "bp-target-percent-variation", fallback=10
+    data = get_market_data(sesh, "VIX", InstrumentType.INDEX)
+    console.print(table)
+    bp_variation = sesh.config.getint(
+        "portfolio", "bp-target-percent-variation", fallback=10
+    )
+    if data.mark - bp_percent > bp_variation:
+        warnings.append(
+            f"BP usage is relatively low given VIX level of {round(data.mark)}!"
         )
-        if trade.price - bp_percent > bp_variation:
-            warnings.append(
-                f"BP usage is relatively low given VIX level of {round(trade.price)}!"
-            )
-        elif bp_percent - trade.price > bp_variation:
-            warnings.append(
-                f"BP usage is relatively high given VIX level of {round(trade.price)}!"
-            )
-        for warning in warnings:
-            print_warning(warning)
+    elif bp_percent - data.mark > bp_variation:
+        warnings.append(
+            f"BP usage is relatively high given VIX level of {round(data.mark)}!"
+        )
+    for warning in warnings:
+        print_warning(warning)
 
 
 @portfolio.command(help="View current balances for an account.")
-async def balance():
+def balance():
     sesh = RenewableSession()
     acc = sesh.get_account()
     balances = acc.get_balances(sesh)

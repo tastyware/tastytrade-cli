@@ -1,125 +1,97 @@
-from decimal import Decimal
+import os
+import tempfile
+from datetime import date, datetime, time, timedelta
+from enum import Enum
+from typing import Annotated
 
-import asyncclick as click
-from rich.console import Console
-from rich.table import Table
+from pygnuplot.gnuplot import Gnuplot
 from tastytrade import DXLinkStreamer
-from tastytrade.dxfeed import Quote
-from tastytrade.instruments import Equity
-from tastytrade.order import NewOrder, OrderAction, OrderTimeInForce, OrderType
-from tastytrade.utils import TastytradeError
+from tastytrade.dxfeed import Candle
+from tastytrade.utils import NYSE, TZ, now_in_new_york
+from typer import Option
 
-from ttcli.utils import (
-    RenewableSession,
-    conditional_color,
-    get_confirmation,
-    print_error,
-    print_warning,
-    round_to_tick_size,
-)
+from ttcli.utils import AsyncTyper, RenewableSession
+
+plot = AsyncTyper(help="Plot candle charts, portfolio P&L, or net liquidating value.")
+fmt = "%Y-%m-%d %H:%M:%S"
 
 
-@click.group(
-    chain=True, help="Plot candle charts, portfolio P&L, or net liquidating value."
-)
-async def plot():
-    pass
+class CandleType(str, Enum):
+    MINUTE = "1m"
+    FIVE_MINUTES = "5m"
+    HALF_HOUR = "30m"
+    HOUR = "1h"
+    DAY = "1d"
+    MONTH = "1mo"
+    YEAR = "1y"
 
 
-@plot.command(help="Plot candle (OHLC) charts for the given symbol.")
-@click.option("--width", "-w", help="Timeframe for each candle.")
-@click.argument("symbol", type=str)
-async def candles(symbol: str, width: str):
-    pass
-
-
-@plot.command(help="List, adjust, or cancel orders.")
-@click.option("--gtc", is_flag=True, help="Place a GTC order instead of a day order.")
-@click.argument("symbol", type=str)
-@click.argument("quantity", type=int)
-async def live(symbol: str, quantity: int, gtc: bool = False):
+@plot.command(help="Plot candle chart for the given symbol.")
+async def stock(
+    symbol: str,
+    start_time: Annotated[
+        datetime | None,
+        Option(
+            "--start",
+            "-s",
+            help="Start time for the candle chart, defaults to market open.",
+        ),
+    ] = None,
+    width: Annotated[
+        CandleType, Option("--width", "-w", help="Interval of time for each candle.")
+    ] = CandleType.HALF_HOUR,
+):
+    now = now_in_new_york()
+    today = now.date()
+    end = today if now.time() > time(9, 30) else today - timedelta(days=1)
+    if not start_time:
+        valid_days = NYSE.valid_days(today - timedelta(days=5), end).to_pydatetime()  # type: ignore
+        start_day: date = valid_days[-1].date()
+        start_time = datetime.combine(start_day, time(9, 30), TZ)
     sesh = RenewableSession()
-    symbol = symbol.upper()
-    equity = Equity.get_equity(sesh, symbol)
-    fmt = lambda x: round_to_tick_size(x, equity.tick_sizes or [])
-
+    candles: list[str] = []
+    ts = round(start_time.timestamp() * 1000)
     async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe(Quote, [symbol])
-        quote = await streamer.get_event(Quote)
-        bid = quote.bid_price
-        ask = quote.ask_price
-        mid = fmt((bid + ask) / Decimal(2))
-
-        console = Console()
-        table = Table(
-            show_header=True,
-            header_style="bold",
-            title_style="bold",
-            title=f"Quote for {symbol}",
-        )
-        table.add_column("Bid", style="green", justify="center")
-        table.add_column("Mid", justify="center")
-        table.add_column("Ask", style="red", justify="center")
-        table.add_row(f"{fmt(bid)}", f"{fmt(mid)}", f"{fmt(ask)}")
-        console.print(table)
-
-        price = input("Please enter a limit price per share (default mid): ")
-        price = mid if not price else Decimal(price)
-
-        leg = equity.build_leg(
-            Decimal(abs(quantity)),
-            OrderAction.SELL_TO_OPEN if quantity < 0 else OrderAction.BUY_TO_OPEN,
-        )
-        m = 1 if quantity < 0 else -1
-        order = NewOrder(
-            time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
-            order_type=OrderType.LIMIT,
-            legs=[leg],
-            price=price * m,
-        )
-        acc = sesh.get_account()
-        try:
-            data = acc.place_order(sesh, order, dry_run=True)
-        except TastytradeError as e:
-            print_error(str(e))
-            return
-
-        nl = acc.get_balances(sesh).net_liquidating_value
-        bp = data.buying_power_effect.change_in_buying_power
-        percent = abs(bp) / nl * Decimal(100)
-        fees = data.fee_calculation.total_fees  # type: ignore
-
-        table = Table(
-            show_header=True,
-            header_style="bold",
-            title_style="bold",
-            title="Order Review",
-        )
-        table.add_column("Quantity", justify="center")
-        table.add_column("Symbol", justify="center")
-        table.add_column("Price", justify="center")
-        table.add_column("BP", justify="center")
-        table.add_column("BP %", justify="center")
-        table.add_column("Fees", justify="center")
-        table.add_row(
-            f"{quantity:+}",
-            symbol,
-            conditional_color(fmt(price), round=False),
-            conditional_color(bp),
-            f"{percent:.2f}%",
-            conditional_color(fees),
-        )
-        console.print(table)
-
-        if data.warnings:
-            for warning in data.warnings:
-                print_warning(warning.message)
-        warn_percent = sesh.config.getfloat(
-            "portfolio", "bp-max-percent-per-position", fallback=None
-        )
-        if warn_percent and percent > warn_percent:
-            print_warning(
-                f"Buying power usage is above per-position target of {warn_percent}%!"
-            )
-        if get_confirmation("Send order? Y/n "):
-            acc.place_order(sesh, order, dry_run=False)
+        await streamer.subscribe_candle([symbol], width.value, start_time)
+        async for candle in streamer.listen(Candle):
+            if candle.close:
+                date_str = datetime.strftime(
+                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
+                )
+                candles.append(
+                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
+                )
+            if candle.time == ts:
+                break
+    candles.sort()
+    gnu = Gnuplot()
+    tmp = tempfile.NamedTemporaryFile(delete=False)
+    with open(tmp.name, "w") as f:
+        f.write("\n".join(candles))
+    first = candles[0].split(",")[0]
+    last = candles[-1].split(",")[0]
+    total_time = datetime.strptime(last, fmt) - datetime.strptime(first, fmt)
+    boxwidth = int(total_time.total_seconds() / len(candles) * 0.5)
+    gnu.set(
+        terminal="kittycairo transparent font 'Courier New, 11'",
+        xdata="time",
+        timefmt=f'"{fmt}"',
+        xrange=f'["{first}":"{last}"]',
+        yrange="[*:*]",
+        datafile='separator ","',
+        palette="defined (-1 '#D32F2F', 1 '#26BE81')",
+        cbrange="[-1:1]",
+        style="fill solid noborder",
+        boxwidth=f"{boxwidth} absolute",
+        title=f'"{symbol}" textcolor rgb "white"',
+        border="31 lc rgb 'white'",
+        xtics="textcolor rgb 'white'",
+        ytics="textcolor rgb 'white'",
+    )
+    gnu.unset("colorbox")
+    os.system("clear")
+    gnu.plot(
+        f"'{tmp.name}' using (strptime('{fmt}', strcol(1))):2:4:3:5:($5 < $2 ? -1 : 1) with candlesticks palette notitle"
+    )
+    _ = input()
+    os.system("clear")

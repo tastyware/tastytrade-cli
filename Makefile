@@ -2,7 +2,6 @@
 
 install:
 	uv sync
-	uv pip install -e .
 
 lint:
 	uv run ruff format ttcli/
