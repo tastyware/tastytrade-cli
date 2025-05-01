@@ -1,15 +1,23 @@
+import asyncio
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
-from typing import cast
+from typing import Annotated, cast
 
-import asyncclick as click
 from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
 from tastytrade.account import MarginReportEntry
 from tastytrade.dxfeed import Greeks, Summary, Trade
-from tastytrade.instruments import Cryptocurrency, Equity, Future, FutureOption, Option
+from tastytrade.instruments import (
+    Cryptocurrency,
+    Equity,
+    Future,
+    FutureOption,
+    Option as TastytradeOption,
+    TickSize,
+)
+from tastytrade.market_data import get_market_data
 from tastytrade.metrics import MarketMetricInfo, get_market_metrics
 from tastytrade.order import (
     InstrumentType,
@@ -17,23 +25,24 @@ from tastytrade.order import (
     OrderAction,
     OrderTimeInForce,
     OrderType,
-    TradeableTastytradeJsonDataclass,
+    TradeableTastytradeData,
 )
 from tastytrade.utils import TastytradeError, today_in_new_york
+from typer import Option
 
 from ttcli.utils import (
     ZERO,
+    AsyncTyper,
     RenewableSession,
     conditional_color,
     get_confirmation,
+    listen_events,
     print_error,
     print_warning,
+    round_to_tick_size,
 )
 
-
-@click.group(help="View positions and stats for your portfolio.")
-async def portfolio():
-    pass
+portfolio = AsyncTyper(help="View positions and stats for your portfolio.")
 
 
 def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
@@ -51,9 +60,10 @@ def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
     return " ".join(indicators) if indicators else ""
 
 
-@portfolio.command(help="View your current positions.")
-@click.option("--all", is_flag=True, help="Show positions for all accounts.")
-async def positions(all: bool = False):
+@portfolio.command(help="View/close your current positions.")
+async def positions(
+    all: Annotated[bool, Option(help="Show positions for all accounts.")] = False,
+):
     sesh = RenewableSession()
     console = Console()
     table = Table(header_style="bold", title_style="bold", title="Positions")
@@ -74,40 +84,34 @@ async def positions(all: bool = False):
     options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY_OPTION
     ]
-    options = Option.get_options(sesh, options_symbols) if options_symbols else []
+    options = TastytradeOption.get(sesh, options_symbols) if options_symbols else []
     options_dict = {o.symbol: o for o in options}
     future_options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.FUTURE_OPTION
     ]
     future_options = (
-        FutureOption.get_future_options(sesh, future_options_symbols)
-        if future_options_symbols
-        else []
+        FutureOption.get(sesh, future_options_symbols) if future_options_symbols else []
     )
     future_options_dict = {fo.symbol: fo for fo in future_options}
     futures_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.FUTURE
     ] + [fo.underlying_symbol for fo in future_options]
-    futures = Future.get_futures(sesh, futures_symbols) if futures_symbols else []
+    futures = Future.get(sesh, futures_symbols) if futures_symbols else []
     futures_dict = {f.symbol: f for f in futures}
     crypto_symbols = [
         p.symbol
         for p in positions
         if p.instrument_type == InstrumentType.CRYPTOCURRENCY
     ]
-    cryptos = (
-        Cryptocurrency.get_cryptocurrencies(sesh, crypto_symbols)
-        if crypto_symbols
-        else []
-    )
+    cryptos = Cryptocurrency.get(sesh, crypto_symbols) if crypto_symbols else []
     crypto_dict = {c.symbol: c for c in cryptos}
     greeks_symbols = [o.streamer_symbol for o in options] + [
         fo.streamer_symbol for fo in future_options
     ]
     equity_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY
-    ]
-    equities = Equity.get_equities(sesh, equity_symbols)
+    ] + [o.underlying_symbol for o in options]
+    equities = Equity.get(sesh, equity_symbols)
     equity_dict = {e.symbol: e for e in equities}
     all_symbols = (
         list(
@@ -120,30 +124,30 @@ async def positions(all: bool = False):
         )
         + greeks_symbols
     )
-    # get greeks for options
-    greeks_dict: dict[str, Greeks] = {}
-    summary_dict: dict[str, Decimal] = {}
+    all_symbols = [s for s in all_symbols if s]
     async with DXLinkStreamer(sesh) as streamer:
-        if greeks_symbols != []:
-            await streamer.subscribe(Greeks, greeks_symbols)
-        # TODO: handle empty
-        await streamer.subscribe(Summary, all_symbols)  # type: ignore
+        greeks_task = asyncio.create_task(
+            listen_events(greeks_symbols, Greeks, streamer)
+        )
+        summary_task = asyncio.create_task(
+            listen_events(all_symbols, Summary, streamer)
+        )
+        await asyncio.gather(greeks_task, summary_task)
         await streamer.subscribe(Trade, ["SPY"])
-        if greeks_symbols != []:
-            async for greeks in streamer.listen(Greeks):
-                greeks_dict[greeks.event_symbol] = greeks
-                if len(greeks_dict) == len(greeks_symbols):
-                    break
         spy = await streamer.get_event(Trade)
-        async for summary in streamer.listen(Summary):
-            summary_dict[summary.event_symbol] = summary.prev_day_close_price or ZERO
-            if len(summary_dict) == len(all_symbols):
-                break
+        greeks_dict = greeks_task.result()
+        summary_dict = {
+            k: v.prev_day_close_price or ZERO for k, v in summary_task.result().items()
+        }
     tt_symbols = set(pos.symbol for pos in positions)
     tt_symbols.update(set(o.underlying_symbol for o in options))
     tt_symbols.update(set(o.underlying_symbol for o in future_options))
     metrics = get_market_metrics(sesh, list(tt_symbols))
-    metrics_dict = {metric.symbol: metric for metric in metrics}
+    metrics_dict = defaultdict(
+        lambda: MarketMetricInfo(symbol="", market_cap=ZERO, updated_at=datetime.now())
+    )
+    for metric in metrics:
+        metrics_dict[metric.symbol] = metric
 
     table_show_mark = sesh.config.getboolean(
         "portfolio.positions", "show-mark-price", fallback=False
@@ -179,13 +183,12 @@ async def positions(all: bool = False):
     table.add_column("Net Liq", justify="right")
     table.add_column("Indicators", justify="center")
     sums = defaultdict(lambda: ZERO)
-    closing: dict[int, TradeableTastytradeJsonDataclass] = {}
+    closing: dict[int, TradeableTastytradeData] = {}
     for i, pos in enumerate(positions):
-        row = [f"{i+1}"]
-        mark = pos.mark or 0
-        mark_price = pos.mark_price or 0
+        row = [f"{i + 1}"]
+        mark = pos.mark or ZERO
+        mark_price = pos.mark_price or ZERO
         m = 1 if pos.quantity_direction == "Long" else -1
-        # mark_price = mark / pos.quantity
         if all:
             row.append(account_dict[pos.account_number])  # type: ignore
         net_liq = Decimal(mark * m)
@@ -199,12 +202,13 @@ async def positions(all: bool = False):
             theta = greeks_dict[o.streamer_symbol].theta * 100 * m
             gamma = greeks_dict[o.streamer_symbol].gamma * 100 * m
             metrics = metrics_dict[o.underlying_symbol]
+            ticks = equity_dict[o.underlying_symbol].option_tick_sizes or []
             beta = metrics.beta or 0
             bwd = beta * mark * delta / spy.price
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             indicators = get_indicators(today, metrics)
-            pnl = m * (mark_price - pos.average_open_price * pos.multiplier)
-            trade_price = pos.average_open_price * pos.multiplier
+            trade_price = pos.average_open_price
+            pnl = (mark_price - trade_price) * m * pos.multiplier
             day_change = mark_price - summary_dict[o.streamer_symbol]
             pnl_day = day_change * pos.quantity * pos.multiplier
         elif pos.instrument_type == InstrumentType.FUTURE_OPTION:
@@ -215,6 +219,7 @@ async def positions(all: bool = False):
             gamma = greeks_dict[o.streamer_symbol].gamma * 100 * m
             # BWD = beta * stock price * delta / index price
             f = futures_dict[o.underlying_symbol]
+            ticks = f.option_tick_sizes or []
             metrics = metrics_dict[o.root_symbol]
             indicators = get_indicators(today, metrics)
             bwd = (
@@ -223,8 +228,8 @@ async def positions(all: bool = False):
                 else 0
             )
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
-            trade_price = pos.average_open_price / f.display_factor
-            pnl = (mark_price - trade_price) * m
+            trade_price = pos.average_open_price
+            pnl = (mark_price - trade_price) * m * pos.multiplier
             day_change = mark_price - summary_dict[o.streamer_symbol]
             pnl_day = day_change * pos.quantity * pos.multiplier
         elif pos.instrument_type == InstrumentType.EQUITY:
@@ -234,6 +239,7 @@ async def positions(all: bool = False):
             # BWD = beta * stock price * delta / index price
             metrics = metrics_dict[pos.symbol]
             e = equity_dict[pos.symbol]
+            ticks = e.tick_sizes or []
             closing[i + 1] = e
             beta = metrics.beta or 0
             indicators = get_indicators(today, metrics)
@@ -248,16 +254,17 @@ async def positions(all: bool = False):
             gamma = 0
             delta = pos.quantity * m * 100
             f = futures_dict[pos.symbol]
+            ticks = f.tick_sizes or []
             closing[i + 1] = f
             # BWD = beta * stock price * delta / index price
             metrics = metrics_dict[f.future_product.root_symbol]  # type: ignore
             indicators = get_indicators(today, metrics)
             bwd = (metrics.beta * mark_price * delta / spy.price) if metrics.beta else 0
             ivr = (metrics.tw_implied_volatility_index_rank or 0) * 100
-            trade_price = pos.average_open_price * f.notional_multiplier
-            pnl = (mark_price - trade_price) * pos.quantity * m
+            trade_price = pos.average_open_price
+            pnl = (mark_price - trade_price) * pos.quantity * m * f.notional_multiplier
             day_change = mark_price - summary_dict[f.streamer_symbol]
-            pnl_day = day_change * pos.quantity * pos.multiplier
+            pnl_day = day_change * pos.quantity * f.notional_multiplier
             net_liq = pnl_day
         elif pos.instrument_type == InstrumentType.CRYPTOCURRENCY:
             theta = 0
@@ -270,13 +277,13 @@ async def positions(all: bool = False):
             indicators = ""
             pos.quantity = round(pos.quantity, 2)
             c = crypto_dict[pos.symbol]
+            ticks = [TickSize(value=c.tick_size)]
             closing[i + 1] = c
             day_change = mark_price - summary_dict[c.streamer_symbol]  # type: ignore
             pnl_day = day_change * pos.quantity * pos.multiplier
         else:
-            print(
-                f"Skipping {pos.symbol}, unknown instrument type "
-                f"{pos.instrument_type}!"
+            print_warning(
+                f"Skipping {pos.symbol}, unknown instrument type {pos.instrument_type}!"
             )
             continue
         if pos.created_at.date() == today:
@@ -294,9 +301,9 @@ async def positions(all: bool = False):
             ]
         )
         if table_show_mark:
-            row.append(f"${mark_price:.2f}")
+            row.append(f"${round_to_tick_size(mark_price, ticks)}")
         if table_show_trade:
-            row.append(f"${trade_price:.2f}")
+            row.append(f"${round_to_tick_size(trade_price, ticks)}")
         row.append(f"{ivr:.1f}" if ivr else "--")
         if table_show_delta:
             row.append(f"{delta:.2f}")
@@ -422,32 +429,23 @@ async def positions(all: bool = False):
 
 
 @portfolio.command(help="View your previous positions.")
-@click.option(
-    "--start-date",
-    type=click.DateTime(["%Y-%m-%d"]),
-    help="The start date for the search date range.",
-)
-@click.option(
-    "--end-date",
-    type=click.DateTime(["%Y-%m-%d"]),
-    help="The end date for the search date range.",
-)
-@click.option("-s", "--symbol", type=str, help="Filter by underlying symbol.")
-@click.option(
-    "-t",
-    "--type",
-    type=click.Choice(list(InstrumentType)),
-    help="Filter by instrument type.",
-)  # type: ignore
-@click.option(
-    "--asc", is_flag=True, help="Sort by ascending time instead of descending."
-)
-async def history(
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
-    symbol: str | None = None,
-    type: InstrumentType | None = None,
-    asc: bool = False,
+def history(
+    start_date: Annotated[
+        datetime | None,
+        Option("--start", help="The start date for the search date range."),
+    ] = None,
+    end_date: Annotated[
+        datetime | None, Option("--end", help="The end date for the search date range.")
+    ] = None,
+    symbol: Annotated[
+        str | None, Option("--symbol", "-s", help="Filter by underlying symbol.")
+    ] = None,
+    type: Annotated[
+        InstrumentType | None, Option("--type", "-t", help="Filter by instrument type.")
+    ] = None,
+    asc: Annotated[
+        bool, Option(help="Sort by ascending time instead of descending.")
+    ] = False,
 ):
     sesh = RenewableSession()
     acc = sesh.get_account()
@@ -515,7 +513,7 @@ async def history(
 
 
 @portfolio.command(help="View margin usage by position for an account.")
-async def margin():
+def margin():
     sesh = RenewableSession()
     acc = sesh.get_account()
     margin = acc.get_margin_requirements(sesh)
@@ -556,27 +554,25 @@ async def margin():
             f"{bp_percent}%",
         ]
     )
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe(Trade, ["VIX"])
-        trade = await streamer.get_event(Trade)
-        console.print(table)
-        bp_variation = sesh.config.getint(
-            "portfolio", "bp-target-percent-variation", fallback=10
+    data = get_market_data(sesh, "VIX", InstrumentType.INDEX)
+    console.print(table)
+    bp_variation = sesh.config.getint(
+        "portfolio", "bp-target-percent-variation", fallback=10
+    )
+    if data.mark - bp_percent > bp_variation:
+        warnings.append(
+            f"BP usage is relatively low given VIX level of {round(data.mark)}!"
         )
-        if trade.price - bp_percent > bp_variation:
-            warnings.append(
-                f"BP usage is relatively low given VIX level of {round(trade.price)}!"
-            )
-        elif bp_percent - trade.price > bp_variation:
-            warnings.append(
-                f"BP usage is relatively high given VIX level of {round(trade.price)}!"
-            )
-        for warning in warnings:
-            print_warning(warning)
+    elif bp_percent - data.mark > bp_variation:
+        warnings.append(
+            f"BP usage is relatively high given VIX level of {round(data.mark)}!"
+        )
+    for warning in warnings:
+        print_warning(warning)
 
 
 @portfolio.command(help="View current balances for an account.")
-async def balance():
+def balance():
     sesh = RenewableSession()
     acc = sesh.get_account()
     balances = acc.get_balances(sesh)

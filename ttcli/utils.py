@@ -1,26 +1,28 @@
+import asyncio
+from functools import partial, wraps
 import getpass
-import logging
+import inspect
+import json
 import os
 import pickle
 from configparser import ConfigParser
 from datetime import date
 from decimal import Decimal
-from typing import Any, Type
+from typing import Any, Callable, Type
 
-from httpx import AsyncClient, Client
+import httpx
 from rich import print as rich_print
-from tastytrade import Account, DXLinkStreamer, Session
+from tastytrade import API_URL, Account, DXLinkStreamer, Session
 from tastytrade.instruments import TickSize
+from tastytrade.order import OrderAction
 from tastytrade.streamer import U
+from typer import Typer
 
-logger = logging.getLogger(__name__)
-VERSION = "0.4"
+from ttcli import CUSTOM_CONFIG_PATH, TOKEN_PATH, logger
+
 ZERO = Decimal(0)
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
-
-CUSTOM_CONFIG_PATH = ".config/ttcli/ttcli.cfg"
-TOKEN_PATH = ".config/ttcli/.session"
 
 config_path = os.path.join(os.path.expanduser("~"), CUSTOM_CONFIG_PATH)
 
@@ -31,6 +33,22 @@ def print_error(msg: str):
 
 def print_warning(msg: str):
     rich_print(f"[light_coral]Warning: {msg}[/light_coral]")
+
+
+def decimalify(val: str) -> Decimal:
+    return Decimal(val)
+
+
+async def listen_events(
+    dxfeeds: list[str], event_class: Type[U], streamer: DXLinkStreamer
+) -> dict[str, U]:
+    event_dict = {}
+    await streamer.subscribe(event_class, dxfeeds)
+    async for event in streamer.listen(event_class):
+        event_dict[event.event_symbol] = event
+        if len(event_dict) == len(dxfeeds):
+            break
+    return event_dict
 
 
 def conditional_color(value: Decimal, dollars: bool = True, round: bool = True) -> str:
@@ -44,6 +62,11 @@ def conditional_color(value: Decimal, dollars: bool = True, round: bool = True) 
     return f"[red]-{d}{abs(value)}[/red]" if value < 0 else f"[green]{d}{value}[/green]"
 
 
+def conditional_quantity(value: Decimal, action: OrderAction) -> str:
+    modified = value * (-1 if "Sell" in action.value else 1)
+    return str(modified) if modified < 0 else f"+{modified}"
+
+
 def round_to_width(x, base=Decimal(1)):
     return base * round(x / base)
 
@@ -52,19 +75,30 @@ def round_to_tick_size(price: Decimal, ticks: list[TickSize]) -> Decimal:
     for tick in ticks:
         if tick.threshold is None or price < tick.threshold:
             return round_to_width(price, tick.value)
-    return price  # unreachable
+    return price
 
 
-async def listen_events(
-    dxfeeds: list[str], event_class: Type[U], streamer: DXLinkStreamer
-) -> dict[str, U]:
-    event_dict = {}
-    await streamer.subscribe(event_class, dxfeeds)
-    async for event in streamer.listen(event_class):
-        event_dict[event.event_symbol] = event
-        if len(event_dict) == len(dxfeeds):
-            return event_dict
-    return event_dict  # unreachable
+class AsyncTyper(Typer):
+    @staticmethod
+    def maybe_run_async(decorator: Callable, func: Callable) -> Any:
+        if inspect.iscoroutinefunction(func):
+
+            @wraps(func)
+            def runner(*args: Any, **kwargs: Any) -> Any:
+                return asyncio.run(func(*args, **kwargs))
+
+            decorator(runner)
+        else:
+            decorator(func)
+        return func
+
+    def callback(self, *args: Any, **kwargs: Any) -> Any:
+        decorator = super().callback(*args, **kwargs)
+        return partial(self.maybe_run_async, decorator)
+
+    def command(self, *args: Any, **kwargs: Any) -> Any:
+        decorator = super().command(*args, **kwargs)
+        return partial(self.maybe_run_async, decorator)
 
 
 class RenewableSession(Session):
@@ -75,7 +109,7 @@ class RenewableSession(Session):
         if os.path.exists(token_path):
             with open(token_path, "rb") as f:
                 data = pickle.load(f)
-                self.deserialize(data)
+                self._deserialize(data)
 
             # make sure token hasn't expired
             logged_in = self.validate()
@@ -92,45 +126,14 @@ class RenewableSession(Session):
             # write session token to cache
             os.makedirs(os.path.dirname(token_path), exist_ok=True)
             with open(token_path, "wb") as f:
+                conf = self.__dict__.pop("config")
                 pickle.dump(self.serialize(), f)
+                self.__dict__["config"] = conf
             logger.debug("Logged in with new session, cached for next login.")
         else:
             logger.debug("Logged in with cached session.")
-        accounts = Account.get_accounts(self)
+        accounts = Account.get(self)
         self.accounts = [acc for acc in accounts if not acc.is_closed]
-
-    def deserialize(self, data: dict[str, Any]):
-        self.session_token = data["session_token"]
-        self.remember_token = data["remember_token"]
-        self.streamer_token = data["streamer_token"]
-        self.dxlink_url = data["dxlink_url"]
-        self.is_test = data["is_test"]
-        self.sync_client = Client(
-            base_url=data["base_url"],
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": data["session_token"],
-            },
-        )
-        self.async_client = AsyncClient(
-            base_url=data["base_url"],
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": data["session_token"],
-            },
-        )
-
-    def serialize(self) -> dict[str, Any]:
-        return {
-            "session_token": self.session_token,
-            "remember_token": self.remember_token,
-            "base_url": str(self.sync_client.base_url),
-            "streamer_token": self.streamer_token,
-            "dxlink_url": self.dxlink_url,
-            "is_test": self.is_test,
-        }
 
     def _get_credentials(self):
         username = os.getenv("TT_USERNAME")
@@ -174,6 +177,17 @@ class RenewableSession(Session):
             except ValueError:
                 return self.accounts[0]
         return self.accounts[choice - 1]
+
+    def _deserialize(self, serialized: str):
+        deserialized = json.loads(serialized)
+        self.__dict__ = deserialized
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": self.session_token,
+        }
+        self.sync_client = httpx.Client(base_url=API_URL, headers=headers)
+        self.async_client = httpx.AsyncClient(base_url=API_URL, headers=headers)
 
 
 def is_monthly(day: date) -> bool:

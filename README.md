@@ -29,10 +29,11 @@ Available commands:
 tt option              view chains, buy or sell equities and futures options
 tt pf (portfolio)      view and close positions, check margin and analyze BP usage
 tt trade               buy or sell stocks/ETFs, crypto, and futures
+tt order               view, replace, and cancel orders
+tt plot                plot charts directly in the terminal! requires `gnuplot` installed
 ```
 Unavailable commands pending development:
 ```
-tt order               view, replace, and cancel orders
 tt wl (watchlist)      view current prices and other data for symbols in your watchlists
 ```
 For more options, run `tt --help` or `tt <subcommand> --help`.
@@ -43,34 +44,6 @@ Many aspects of the CLI's behavior can be customized using the `ttcli.cfg` file 
 
 The default configuration file contains lots of options along with explanations of what they do.
 
-## Shell completion
-<details>
-  <summary>Bash</summary>
-
-Add this line to your `.bashrc`:
-```bash
-eval "$(_TT_COMPLETE=bash_source tt)"
-```
-</details>
-
-<details>
-  <summary>Zsh</summary>
-  
-Add this line to your `.zshrc`:
-```zsh
-eval "$(_TT_COMPLETE=zsh_source tt)"
-```
-</details>
-
-<details>
-  <summary>Fish</summary>
-  
-Add this to `~/.config/fish/completions/tt.fish`
-```fish
-_TT_COMPLETE=fish_source tt | source
-```
-</details>
-
 ## Development/Contributing
 
 This project includes a number of helpers in the `Makefile` to streamline common development tasks.
@@ -78,7 +51,7 @@ Make sure you already have [uv](https://docs.astral.sh/uv/getting-started/instal
 
 Creating a virtualenv for development:
 ```
-$ make install
+$ uv sync
 ```
 
 It's usually a good idea to make sure you're passing tests locally before submitting a PR:
