@@ -1,6 +1,6 @@
 import os
 import tempfile
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, time, timedelta
 from enum import Enum
 from typing import Annotated
 
@@ -19,6 +19,8 @@ fmt = "%Y-%m-%d %H:%M:%S"
 class CandleType(str, Enum):
     MINUTE = "1m"
     FIVE_MINUTES = "5m"
+    TEN_MINUTES = "10m"
+    FIFTEEN_MINUTES = "15m"
     HALF_HOUR = "30m"
     HOUR = "1h"
     DAY = "1d"
@@ -29,14 +31,6 @@ class CandleType(str, Enum):
 @plot.command(help="Plot candle chart for the given symbol.")
 async def stock(
     symbol: str,
-    start_time: Annotated[
-        datetime | None,
-        Option(
-            "--start",
-            "-s",
-            help="Start time for the candle chart, defaults to market open.",
-        ),
-    ] = None,
     width: Annotated[
         CandleType, Option("--width", "-w", help="Interval of time for each candle.")
     ] = CandleType.HALF_HOUR,
@@ -44,10 +38,19 @@ async def stock(
     now = now_in_new_york()
     today = now.date()
     end = today if now.time() > time(9, 30) else today - timedelta(days=1)
-    if not start_time:
+    if width == CandleType.DAY:
+        valid_days = NYSE.valid_days(today - timedelta(days=30), end).to_pydatetime()  # type: ignore
+        start_day = valid_days[0].date()
+    elif width == CandleType.MONTH:
+        valid_days = NYSE.valid_days(today - timedelta(days=365), end).to_pydatetime()  # type: ignore
+        start_day = valid_days[0].date()
+    elif width == CandleType.YEAR:
+        valid_days = NYSE.valid_days(today - timedelta(days=3650), end).to_pydatetime()  # type: ignore
+        start_day = valid_days[0].date()
+    else:
         valid_days = NYSE.valid_days(today - timedelta(days=5), end).to_pydatetime()  # type: ignore
-        start_day: date = valid_days[-1].date()
-        start_time = datetime.combine(start_day, time(9, 30), TZ)
+        start_day = valid_days[-1].date()
+    start_time = datetime.combine(start_day, time(9, 30), TZ)
     sesh = RenewableSession()
     candles: list[str] = []
     ts = round(start_time.timestamp() * 1000)
@@ -72,8 +75,10 @@ async def stock(
     last = candles[-1].split(",")[0]
     total_time = datetime.strptime(last, fmt) - datetime.strptime(first, fmt)
     boxwidth = int(total_time.total_seconds() / len(candles) * 0.5)
+    font = sesh.config.get("plot", "font", fallback="Courier New")
+    font_size = sesh.config.getint("plot", "font-size", fallback=11)
     gnu.set(
-        terminal="kittycairo transparent font 'Courier New, 11'",
+        terminal=f"kittycairo transparent font '{font},{font_size}'",
         xdata="time",
         timefmt=f'"{fmt}"',
         xrange=f'["{first}":"{last}"]',
