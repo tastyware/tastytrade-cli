@@ -31,10 +31,7 @@ tt pf (portfolio)      view and close positions, check margin and analyze BP usa
 tt trade               buy or sell stocks/ETFs, crypto, and futures
 tt order               view, replace, and cancel orders
 tt plot                plot charts directly in the terminal! requires `gnuplot` installed
-```
-Unavailable commands pending development:
-```
-tt wl (watchlist)      view current prices and other data for symbols in your watchlists
+tt wl (watchlist)      view prices and metrics for symbols in your watchlists (pending further development!)
 ```
 For more options, run `tt --help` or `tt <subcommand> --help`.
 

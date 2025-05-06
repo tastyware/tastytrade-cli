@@ -1,4 +1,3 @@
-import asyncio
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
@@ -8,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
 from tastytrade.account import MarginReportEntry
-from tastytrade.dxfeed import Greeks, Summary, Trade
+from tastytrade.dxfeed import Greeks
 from tastytrade.instruments import (
     Cryptocurrency,
     Equity,
@@ -17,7 +16,7 @@ from tastytrade.instruments import (
     Option as TastytradeOption,
     TickSize,
 )
-from tastytrade.market_data import get_market_data
+from tastytrade.market_data import a_get_market_data_by_type, get_market_data
 from tastytrade.metrics import MarketMetricInfo, get_market_metrics
 from tastytrade.order import (
     InstrumentType,
@@ -108,9 +107,11 @@ async def positions(
     greeks_symbols = [o.streamer_symbol for o in options] + [
         fo.streamer_symbol for fo in future_options
     ]
-    equity_symbols = [
-        p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY
-    ] + [o.underlying_symbol for o in options]
+    equity_symbols = (
+        [p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY]
+        + [o.underlying_symbol for o in options]
+        + ["SPY"]
+    )
     equities = Equity.get(sesh, equity_symbols)
     equity_dict = {e.symbol: e for e in equities}
     all_symbols = (
@@ -125,20 +126,22 @@ async def positions(
         + greeks_symbols
     )
     all_symbols = [s for s in all_symbols if s]
-    async with DXLinkStreamer(sesh) as streamer:
-        greeks_task = asyncio.create_task(
-            listen_events(greeks_symbols, Greeks, streamer)
-        )
-        summary_task = asyncio.create_task(
-            listen_events(all_symbols, Summary, streamer)
-        )
-        await asyncio.gather(greeks_task, summary_task)
-        await streamer.subscribe(Trade, ["SPY"])
-        spy = await streamer.get_event(Trade)
-        greeks_dict = greeks_task.result()
-        summary_dict = {
-            k: v.prev_day_close_price or ZERO for k, v in summary_task.result().items()
-        }
+    if greeks_symbols:
+        async with DXLinkStreamer(sesh) as streamer:
+            greeks_dict = await listen_events(greeks_symbols, Greeks, streamer)
+    else:
+        greeks_dict = {}
+    data = await a_get_market_data_by_type(
+        sesh,
+        cryptocurrencies=crypto_symbols or None,
+        equities=equity_symbols,
+        futures=futures_symbols or None,
+        options=options_symbols or None,
+        future_options=future_options_symbols or None,
+    )
+    data_dict = {d.symbol: d for d in data}
+    prev_close = lambda s: data_dict[s].prev_close or ZERO
+    spy = data_dict["SPY"].last or ZERO
     tt_symbols = set(pos.symbol for pos in positions)
     tt_symbols.update(set(o.underlying_symbol for o in options))
     tt_symbols.update(set(o.underlying_symbol for o in future_options))
@@ -204,12 +207,12 @@ async def positions(
             metrics = metrics_dict[o.underlying_symbol]
             ticks = equity_dict[o.underlying_symbol].option_tick_sizes or []
             beta = metrics.beta or 0
-            bwd = beta * mark * delta / spy.price
+            bwd = beta * mark * delta / spy
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             indicators = get_indicators(today, metrics)
             trade_price = pos.average_open_price
             pnl = (mark_price - trade_price) * m * pos.multiplier
-            day_change = mark_price - summary_dict[o.streamer_symbol]
+            day_change = mark_price - prev_close(o.symbol)
             pnl_day = day_change * pos.quantity * pos.multiplier
         elif pos.instrument_type == InstrumentType.FUTURE_OPTION:
             o = future_options_dict[pos.symbol]
@@ -223,14 +226,14 @@ async def positions(
             metrics = metrics_dict[o.root_symbol]
             indicators = get_indicators(today, metrics)
             bwd = (
-                (summary_dict[f.streamer_symbol] * metrics.beta * delta / spy.price)
+                (prev_close(f.symbol) * metrics.beta * delta / spy)
                 if metrics.beta
                 else 0
             )
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             trade_price = pos.average_open_price
             pnl = (mark_price - trade_price) * m * pos.multiplier
-            day_change = mark_price - summary_dict[o.streamer_symbol]
+            day_change = mark_price - prev_close(o.symbol)
             pnl_day = day_change * pos.quantity * pos.multiplier
         elif pos.instrument_type == InstrumentType.EQUITY:
             theta = 0
@@ -243,11 +246,11 @@ async def positions(
             closing[i + 1] = e
             beta = metrics.beta or 0
             indicators = get_indicators(today, metrics)
-            bwd = beta * mark_price * delta / spy.price
+            bwd = beta * mark_price * delta / spy
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             pnl = mark - pos.average_open_price * pos.quantity * m
             trade_price = pos.average_open_price
-            day_change = mark_price - summary_dict[pos.symbol]
+            day_change = mark_price - prev_close(pos.symbol)
             pnl_day = day_change * pos.quantity
         elif pos.instrument_type == InstrumentType.FUTURE:
             theta = 0
@@ -259,11 +262,11 @@ async def positions(
             # BWD = beta * stock price * delta / index price
             metrics = metrics_dict[f.future_product.root_symbol]  # type: ignore
             indicators = get_indicators(today, metrics)
-            bwd = (metrics.beta * mark_price * delta / spy.price) if metrics.beta else 0
+            bwd = (metrics.beta * mark_price * delta / spy) if metrics.beta else 0
             ivr = (metrics.tw_implied_volatility_index_rank or 0) * 100
             trade_price = pos.average_open_price
             pnl = (mark_price - trade_price) * pos.quantity * m * f.notional_multiplier
-            day_change = mark_price - summary_dict[f.streamer_symbol]
+            day_change = mark_price - prev_close(f.symbol)
             pnl_day = day_change * pos.quantity * f.notional_multiplier
             net_liq = pnl_day
         elif pos.instrument_type == InstrumentType.CRYPTOCURRENCY:
@@ -279,7 +282,7 @@ async def positions(
             c = crypto_dict[pos.symbol]
             ticks = [TickSize(value=c.tick_size)]
             closing[i + 1] = c
-            day_change = mark_price - summary_dict[c.streamer_symbol]  # type: ignore
+            day_change = mark_price - prev_close(c.symbol)
             pnl_day = day_change * pos.quantity * pos.multiplier
         else:
             print_warning(
@@ -342,7 +345,7 @@ async def positions(
         delta_diff = delta_target - sums["bwd"]
         if abs(delta_diff) > delta_variation:
             print_warning(
-                f"Portfolio beta-weighting misses target of {delta_target} substantially!"
+                f"Portfolio beta weight misses target of {delta_target} substantially!"
             )
     close = get_confirmation("Close out a position? y/N ", default=False)
     if not close:

@@ -7,10 +7,11 @@ from typing import Annotated
 from pygnuplot.gnuplot import Gnuplot
 from tastytrade import DXLinkStreamer
 from tastytrade.dxfeed import Candle
+from tastytrade.instruments import Cryptocurrency, Future, FutureProduct
 from tastytrade.utils import NYSE, TZ, now_in_new_york
 from typer import Option
 
-from ttcli.utils import AsyncTyper, RenewableSession
+from ttcli.utils import AsyncTyper, RenewableSession, print_error
 
 plot = AsyncTyper(help="Plot candle charts, portfolio P&L, or net liquidating value.")
 fmt = "%Y-%m-%d %H:%M:%S"
@@ -28,13 +29,7 @@ class CandleType(str, Enum):
     YEAR = "1y"
 
 
-@plot.command(help="Plot candle chart for the given symbol.")
-async def stock(
-    symbol: str,
-    width: Annotated[
-        CandleType, Option("--width", "-w", help="Interval of time for each candle.")
-    ] = CandleType.HALF_HOUR,
-):
+def get_start_time(width: CandleType) -> datetime:
     now = now_in_new_york()
     today = now.date()
     end = today if now.time() > time(9, 30) else today - timedelta(days=1)
@@ -50,23 +45,10 @@ async def stock(
     else:
         valid_days = NYSE.valid_days(today - timedelta(days=5), end).to_pydatetime()  # type: ignore
         start_day = valid_days[-1].date()
-    start_time = datetime.combine(start_day, time(9, 30), TZ)
-    sesh = RenewableSession()
-    candles: list[str] = []
-    ts = round(start_time.timestamp() * 1000)
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe_candle([symbol], width.value, start_time)
-        async for candle in streamer.listen(Candle):
-            if candle.close:
-                date_str = datetime.strftime(
-                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
-                )
-                candles.append(
-                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
-                )
-            if candle.time == ts:
-                break
-    candles.sort()
+    return datetime.combine(start_day, time(9, 30), TZ)
+
+
+def gnuplot(sesh: RenewableSession, symbol: str, candles: list[str]) -> None:
     gnu = Gnuplot()
     tmp = tempfile.NamedTemporaryFile(delete=False)
     with open(tmp.name, "w") as f:
@@ -100,3 +82,107 @@ async def stock(
     )
     _ = input()
     os.system("clear")
+
+
+@plot.command(help="Plot candle chart for the given symbol.")
+async def stock(
+    symbol: str,
+    width: Annotated[
+        CandleType, Option("--width", "-w", help="Interval of time for each candle.")
+    ] = CandleType.HALF_HOUR,
+):
+    sesh = RenewableSession()
+    candles: list[str] = []
+    start_time = get_start_time(width)
+    ts = round(start_time.timestamp() * 1000)
+    async with DXLinkStreamer(sesh) as streamer:
+        await streamer.subscribe_candle([symbol], width.value, start_time)
+        async for candle in streamer.listen(Candle):
+            if candle.close:
+                date_str = datetime.strftime(
+                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
+                )
+                candles.append(
+                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
+                )
+            if candle.time == ts:
+                break
+    candles.sort()
+    gnuplot(sesh, symbol, candles)
+
+
+@plot.command(help="Plot candle chart for the given symbol.")
+async def crypto(
+    symbol: str,
+    width: Annotated[
+        CandleType, Option("--width", "-w", help="Interval of time for each candle.")
+    ] = CandleType.HALF_HOUR,
+):
+    sesh = RenewableSession()
+    symbol = symbol.upper()
+    if "USD" not in symbol:
+        symbol += "/USD"
+    elif "/" not in symbol:
+        symbol = symbol.split("USD")[0] + "/USD"
+    crypto = Cryptocurrency.get(sesh, symbol)
+    candles: list[str] = []
+    start_time = get_start_time(width)
+    ts = round(start_time.timestamp() * 1000)
+    if not crypto.streamer_symbol:
+        raise Exception("Missing streamer symbol for instrument!")
+    async with DXLinkStreamer(sesh) as streamer:
+        await streamer.subscribe_candle(
+            [crypto.streamer_symbol], width.value, start_time
+        )
+        async for candle in streamer.listen(Candle):
+            if candle.close:
+                date_str = datetime.strftime(
+                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
+                )
+                candles.append(
+                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
+                )
+            if candle.time == ts:
+                break
+    candles.sort()
+    gnuplot(sesh, crypto.symbol, candles)
+
+
+@plot.command(help="Plot candle chart for the given symbol.")
+async def future(
+    symbol: str,
+    width: Annotated[
+        CandleType, Option("--width", "-w", help="Interval of time for each candle.")
+    ] = CandleType.HALF_HOUR,
+):
+    sesh = RenewableSession()
+    symbol = symbol.upper()
+    if symbol[0] != "/":
+        symbol = "/" + symbol
+    if not any(c.isdigit() for c in symbol):
+        product = FutureProduct.get(sesh, symbol)
+        _fmt = ",".join([f" {m.name} ({m.value})" for m in product.active_months])
+        print_error(
+            f"Please enter the full futures symbol!\nCurrent active months:{_fmt}"
+        )
+        return
+    future = Future.get(sesh, symbol)
+    candles: list[str] = []
+    start_time = get_start_time(width)
+    ts = round(start_time.timestamp() * 1000)
+    async with DXLinkStreamer(sesh) as streamer:
+        await streamer.subscribe_candle(
+            [future.streamer_symbol], width.value, start_time
+        )
+        async for candle in streamer.listen(Candle):
+            if candle.close:
+                date_str = datetime.strftime(
+                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
+                )
+                candles.append(
+                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
+                )
+            if candle.time == ts:
+                break
+    candles.sort()
+    gnuplot(sesh, future.symbol, candles)

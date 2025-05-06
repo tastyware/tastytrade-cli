@@ -12,6 +12,7 @@ from ttcli.plot import plot
 from ttcli.portfolio import portfolio
 from ttcli.trade import trade
 from ttcli.utils import config_path
+from ttcli.watchlist import watchlist
 
 cli = Typer()
 
@@ -39,6 +40,7 @@ cli.add_typer(order, name="order")
 cli.add_typer(plot, name="plot")
 cli.add_typer(portfolio, name="pf")
 cli.add_typer(trade, name="trade")
+cli.add_typer(watchlist, name=None)
 
 
 if __name__ == "__main__":

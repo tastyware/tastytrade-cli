@@ -18,7 +18,7 @@ from tastytrade.order import OrderAction
 from tastytrade.streamer import U
 from typer import Typer
 
-from ttcli import CUSTOM_CONFIG_PATH, TOKEN_PATH, logger
+from ttcli import CUSTOM_CONFIG_PATH, TOKEN_PATH, VERSION, logger
 
 ZERO = Decimal(0)
 
@@ -103,7 +103,7 @@ class AsyncTyper(Typer):
 
 class RenewableSession(Session):
     def __init__(self):
-        token_path = os.path.join(os.path.expanduser("~"), TOKEN_PATH)
+        token_path = os.path.join(os.path.expanduser("~"), f"{TOKEN_PATH}.v{VERSION}")
         logged_in = False
         # try to load token
         if os.path.exists(token_path):
