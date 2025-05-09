@@ -113,12 +113,13 @@ def choose_futures_expiration(
     return exps[choice - 1]
 
 
-option = AsyncTyper(help="Buy, sell, and analyze options.")
+option = AsyncTyper(help="Buy, sell, and analyze options.", no_args_is_help=True)
 
 
 @option.command(
     help="Buy or sell calls with the given parameters.",
     context_settings={"ignore_unknown_options": True},
+    no_args_is_help=True,
 )
 async def call(
     symbol: str,
@@ -353,6 +354,7 @@ async def call(
 @option.command(
     help="Buy or sell puts with the given parameters.",
     context_settings={"ignore_unknown_options": True},
+    no_args_is_help=True,
 )
 async def put(
     symbol: str,
@@ -588,6 +590,7 @@ async def put(
 @option.command(
     help="Buy or sell strangles with the given parameters.",
     context_settings={"ignore_unknown_options": True},
+    no_args_is_help=True,
 )
 async def strangle(
     symbol: str,
@@ -905,7 +908,7 @@ async def strangle(
         acc.place_order(sesh, order, dry_run=False)
 
 
-@option.command(help="Fetch and display an options chain.")
+@option.command(help="Fetch and display an options chain.", no_args_is_help=True)
 async def chain(
     symbol: str,
     strikes: Annotated[

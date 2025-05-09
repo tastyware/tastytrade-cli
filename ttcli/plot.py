@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 from datetime import datetime, time, timedelta
 from enum import Enum
@@ -13,7 +14,7 @@ from typer import Option
 
 from ttcli.utils import AsyncTyper, RenewableSession, print_error
 
-plot = AsyncTyper(help="Plot candle charts, portfolio P&L, or net liquidating value.")
+plot = AsyncTyper(help="Plot candle charts for any symbol.", no_args_is_help=True)
 fmt = "%Y-%m-%d %H:%M:%S"
 
 
@@ -49,6 +50,12 @@ def get_start_time(width: CandleType) -> datetime:
 
 
 def gnuplot(sesh: RenewableSession, symbol: str, candles: list[str]) -> None:
+    if not shutil.which("gnuplot"):
+        print_error(
+            "Please install gnuplot on your system to use the plot module: "
+            "[link=http://www.gnuplot.info]http://www.gnuplot.info[/link]"
+        )
+        return
     gnu = Gnuplot()
     tmp = tempfile.NamedTemporaryFile(delete=False)
     with open(tmp.name, "w") as f:
@@ -84,7 +91,7 @@ def gnuplot(sesh: RenewableSession, symbol: str, candles: list[str]) -> None:
     os.system("clear")
 
 
-@plot.command(help="Plot candle chart for the given symbol.")
+@plot.command(help="Plot candle chart for the given symbol.", no_args_is_help=True)
 async def stock(
     symbol: str,
     width: Annotated[
@@ -111,7 +118,7 @@ async def stock(
     gnuplot(sesh, symbol, candles)
 
 
-@plot.command(help="Plot candle chart for the given symbol.")
+@plot.command(help="Plot candle chart for the given symbol.", no_args_is_help=True)
 async def crypto(
     symbol: str,
     width: Annotated[
@@ -148,7 +155,7 @@ async def crypto(
     gnuplot(sesh, crypto.symbol, candles)
 
 
-@plot.command(help="Plot candle chart for the given symbol.")
+@plot.command(help="Plot candle chart for the given symbol.", no_args_is_help=True)
 async def future(
     symbol: str,
     width: Annotated[

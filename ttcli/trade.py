@@ -26,12 +26,15 @@ from ttcli.utils import (
     round_to_width,
 )
 
-trade = Typer(help="Buy or sell stocks/ETFs, crypto, and futures.")
+trade = Typer(
+    help="Buy or sell stocks/ETFs, crypto, and futures.", no_args_is_help=True
+)
 
 
 @trade.command(
     help="Buy or sell stocks/ETFs.",
     context_settings={"ignore_unknown_options": True},
+    no_args_is_help=True,
 )
 def stock(
     symbol: str,
@@ -125,7 +128,7 @@ def stock(
         acc.place_order(sesh, order, dry_run=False)
 
 
-@trade.command(help="Buy cryptocurrency.")
+@trade.command(help="Buy cryptocurrency.", no_args_is_help=True)
 def crypto(symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)]):
     sesh = RenewableSession()
     symbol = symbol.upper()
@@ -219,6 +222,7 @@ def crypto(symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)
 @trade.command(
     help="Buy or sell futures.",
     context_settings={"ignore_unknown_options": True},
+    no_args_is_help=True,
 )
 def future(
     symbol: str,

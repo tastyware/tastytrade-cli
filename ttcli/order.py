@@ -1,9 +1,12 @@
+from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
+from math import gcd
 from typing import Annotated
 
 from rich.console import Console
 from rich.table import Table
+from tastytrade.market_data import get_market_data_by_type
 from tastytrade.order import InstrumentType, NewOrder, OrderStatus
 from tastytrade.utils import TastytradeError
 from typer import Option, Typer
@@ -17,7 +20,7 @@ from ttcli.utils import (
     print_error,
 )
 
-order = Typer(help="List, adjust, or cancel orders.")
+order = Typer(help="List, adjust, or cancel orders.", no_args_is_help=True)
 
 
 @order.command(help="List, adjust, or cancel live orders.")
@@ -39,6 +42,19 @@ def live(
         for o in orders
         if o.status == OrderStatus.LIVE or o.status == OrderStatus.RECEIVED
     ]
+    instrument_dict: dict[InstrumentType, set[str]] = defaultdict(set)
+    for o in orders:
+        for leg in o.legs:
+            instrument_dict[leg.instrument_type].add(leg.symbol)
+    data = get_market_data_by_type(
+        sesh,
+        cryptocurrencies=list(instrument_dict[InstrumentType.CRYPTOCURRENCY]) or None,
+        equities=list(instrument_dict[InstrumentType.EQUITY]) or None,
+        futures=list(instrument_dict[InstrumentType.FUTURE]) or None,
+        future_options=list(instrument_dict[InstrumentType.FUTURE_OPTION]) or None,
+        options=list(instrument_dict[InstrumentType.EQUITY_OPTION]) or None,
+    )
+    marks = {d.symbol: d.mark for d in data}
     console = Console()
     table = Table(
         show_header=True,
@@ -55,11 +71,19 @@ def live(
     table.add_column("Type")
     table.add_column("TIF")
     table.add_column("Price", justify="right")
+    table.add_column("Mark", justify="right")
     # leg info
     table.add_column("Qty", justify="right")
     table.add_column("Legs")
 
     for i, order in enumerate(orders):
+        total_price = ZERO
+        # handle ratio spreads
+        quantity = gcd(*[int(leg.quantity or 0) for leg in order.legs])
+        for leg in order.legs:
+            if leg.quantity:
+                m = 1 if "Sell" in leg.action.value else -1
+                total_price += m * marks[leg.symbol] * leg.quantity / quantity
         row = [
             str(i + 1),
             order.updated_at.strftime("%Y-%m-%d %H:%M"),
@@ -68,6 +92,7 @@ def live(
             order.order_type.value,
             order.time_in_force.value,
             conditional_color(order.price) if order.price else "--",
+            conditional_color(total_price),
             conditional_quantity(order.legs[0].quantity or ZERO, order.legs[0].action),
             order.legs[0].symbol,
         ]
@@ -76,6 +101,7 @@ def live(
         table.add_row(*row, end_section=(len(order.legs) == 1))
         for i in range(1, len(order.legs)):
             row = [
+                "",
                 "",
                 "",
                 "",

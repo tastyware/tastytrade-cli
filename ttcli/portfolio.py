@@ -41,7 +41,9 @@ from ttcli.utils import (
     round_to_tick_size,
 )
 
-portfolio = AsyncTyper(help="View positions and stats for your portfolio.")
+portfolio = AsyncTyper(
+    help="View positions and stats for your portfolio.", no_args_is_help=True
+)
 
 
 def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
@@ -186,7 +188,7 @@ async def positions(
     table.add_column("Net Liq", justify="right")
     table.add_column("Indicators", justify="center")
     sums = defaultdict(lambda: ZERO)
-    closing: dict[int, TradeableTastytradeData] = {}
+    closing: list[TradeableTastytradeData] = []
     for i, pos in enumerate(positions):
         row = [f"{i + 1}"]
         mark = pos.mark or ZERO
@@ -199,7 +201,7 @@ async def positions(
         # instrument-specific calculations
         if pos.instrument_type == InstrumentType.EQUITY_OPTION:
             o = options_dict[pos.symbol]
-            closing[i + 1] = o
+            closing.append(o)
             # BWD = beta * stock price * delta / index price
             delta = greeks_dict[o.streamer_symbol].delta * 100 * m
             theta = greeks_dict[o.streamer_symbol].theta * 100 * m
@@ -216,7 +218,7 @@ async def positions(
             pnl_day = day_change * pos.quantity * pos.multiplier
         elif pos.instrument_type == InstrumentType.FUTURE_OPTION:
             o = future_options_dict[pos.symbol]
-            closing[i + 1] = o
+            closing.append(o)
             delta = greeks_dict[o.streamer_symbol].delta * 100 * m
             theta = greeks_dict[o.streamer_symbol].theta * 100 * m
             gamma = greeks_dict[o.streamer_symbol].gamma * 100 * m
@@ -243,7 +245,7 @@ async def positions(
             metrics = metrics_dict[pos.symbol]
             e = equity_dict[pos.symbol]
             ticks = e.tick_sizes or []
-            closing[i + 1] = e
+            closing.append(e)
             beta = metrics.beta or 0
             indicators = get_indicators(today, metrics)
             bwd = beta * mark_price * delta / spy
@@ -258,7 +260,7 @@ async def positions(
             delta = pos.quantity * m * 100
             f = futures_dict[pos.symbol]
             ticks = f.tick_sizes or []
-            closing[i + 1] = f
+            closing.append(f)
             # BWD = beta * stock price * delta / index price
             metrics = metrics_dict[f.future_product.root_symbol]  # type: ignore
             indicators = get_indicators(today, metrics)
@@ -281,7 +283,7 @@ async def positions(
             pos.quantity = round(pos.quantity, 2)
             c = crypto_dict[pos.symbol]
             ticks = [TickSize(value=c.tick_size)]
-            closing[i + 1] = c
+            closing.append(c)
             day_change = mark_price - prev_close(c.symbol)
             pnl_day = day_change * pos.quantity * pos.multiplier
         else:
@@ -350,14 +352,18 @@ async def positions(
     close = get_confirmation("Close out a position? y/N ", default=False)
     if not close:
         return
-    # get the position(s) to close
-    to_close = input(
-        "Enter the number(s) of the leg(s) to include in closing order, separated by commas: "
-    )
-    if not to_close:
-        return
-    to_close = [int(i) for i in to_close.split(",")]
-    close_objs = [closing[i] for i in to_close]
+    if len(closing) > 1:
+        # get the position(s) to close
+        to_close = input(
+            "Enter the number(s) of the leg(s) to include in closing order, separated by commas: "
+        )
+        if not to_close:
+            return
+        to_close = [int(i) for i in to_close.split(",")]
+        close_objs = [closing[i - 1] for i in to_close]
+    else:
+        print("Auto-selected the only position available.")
+        close_objs = [closing[0]]
     account_number = pos_dict[close_objs[0].symbol].account_number
     if any(pos_dict[o.symbol].account_number != account_number for o in close_objs):
         print("All legs must be in the same account!")

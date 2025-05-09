@@ -14,7 +14,7 @@ from ttcli.trade import trade
 from ttcli.utils import config_path
 from ttcli.watchlist import watchlist
 
-cli = Typer()
+cli = Typer(no_args_is_help=True)
 
 
 @cli.callback(invoke_without_command=True, no_args_is_help=True)
