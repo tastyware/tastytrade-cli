@@ -10,6 +10,7 @@ from tastytrade.market_data import get_market_data_by_type
 from tastytrade.order import InstrumentType, NewOrder, OrderStatus
 from tastytrade.utils import TastytradeError
 from typer import Option, Typer
+from yaspin import yaspin
 
 from ttcli.utils import (
     ZERO,
@@ -177,15 +178,16 @@ def history(
 ):
     sesh = RenewableSession()
     acc = sesh.get_account()
-    history = acc.get_order_history(
-        sesh,
-        start_date=start_date.date() if start_date else None,
-        end_date=end_date.date() if end_date else None,
-        underlying_symbol=symbol if symbol and symbol[0] != "/" else None,
-        futures_symbol=symbol if symbol and symbol[0] == "/" else None,
-        underlying_instrument_type=type,
-        statuses=status,
-    )
+    with yaspin(color="green", text="Fetching history..."):
+        history = acc.get_order_history(
+            sesh,
+            start_date=start_date.date() if start_date else None,
+            end_date=end_date.date() if end_date else None,
+            underlying_symbol=symbol if symbol and symbol[0] != "/" else None,
+            futures_symbol=symbol if symbol and symbol[0] == "/" else None,
+            underlying_instrument_type=type,
+            statuses=status,
+        )
     if asc:
         history.reverse()
     console = Console()

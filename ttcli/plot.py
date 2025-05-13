@@ -11,6 +11,7 @@ from tastytrade.dxfeed import Candle
 from tastytrade.instruments import Cryptocurrency, Future, FutureProduct
 from tastytrade.utils import NYSE, TZ, now_in_new_york
 from typer import Option
+from yaspin import yaspin
 
 from ttcli.utils import AsyncTyper, RenewableSession, print_error
 
@@ -102,18 +103,19 @@ async def stock(
     candles: list[str] = []
     start_time = get_start_time(width)
     ts = round(start_time.timestamp() * 1000)
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe_candle([symbol], width.value, start_time)
-        async for candle in streamer.listen(Candle):
-            if candle.close:
-                date_str = datetime.strftime(
-                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
-                )
-                candles.append(
-                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
-                )
-            if candle.time == ts:
-                break
+    with yaspin(color="green", text="Fetching candles..."):
+        async with DXLinkStreamer(sesh) as streamer:
+            await streamer.subscribe_candle([symbol], width.value, start_time)
+            async for candle in streamer.listen(Candle):
+                if candle.close:
+                    date_str = datetime.strftime(
+                        datetime.fromtimestamp(candle.time / 1000, TZ), fmt
+                    )
+                    candles.append(
+                        f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
+                    )
+                if candle.time == ts:
+                    break
     candles.sort()
     gnuplot(sesh, symbol, candles)
 
@@ -137,20 +139,21 @@ async def crypto(
     ts = round(start_time.timestamp() * 1000)
     if not crypto.streamer_symbol:
         raise Exception("Missing streamer symbol for instrument!")
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe_candle(
-            [crypto.streamer_symbol], width.value, start_time
-        )
-        async for candle in streamer.listen(Candle):
-            if candle.close:
-                date_str = datetime.strftime(
-                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
-                )
-                candles.append(
-                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
-                )
-            if candle.time == ts:
-                break
+    with yaspin(color="green", text="Fetching candles..."):
+        async with DXLinkStreamer(sesh) as streamer:
+            await streamer.subscribe_candle(
+                [crypto.streamer_symbol], width.value, start_time
+            )
+            async for candle in streamer.listen(Candle):
+                if candle.close:
+                    date_str = datetime.strftime(
+                        datetime.fromtimestamp(candle.time / 1000, TZ), fmt
+                    )
+                    candles.append(
+                        f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
+                    )
+                if candle.time == ts:
+                    break
     candles.sort()
     gnuplot(sesh, crypto.symbol, candles)
 
@@ -177,19 +180,20 @@ async def future(
     candles: list[str] = []
     start_time = get_start_time(width)
     ts = round(start_time.timestamp() * 1000)
-    async with DXLinkStreamer(sesh) as streamer:
-        await streamer.subscribe_candle(
-            [future.streamer_symbol], width.value, start_time
-        )
-        async for candle in streamer.listen(Candle):
-            if candle.close:
-                date_str = datetime.strftime(
-                    datetime.fromtimestamp(candle.time / 1000, TZ), fmt
-                )
-                candles.append(
-                    f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
-                )
-            if candle.time == ts:
-                break
+    with yaspin(color="green", text="Fetching candles..."):
+        async with DXLinkStreamer(sesh) as streamer:
+            await streamer.subscribe_candle(
+                [future.streamer_symbol], width.value, start_time
+            )
+            async for candle in streamer.listen(Candle):
+                if candle.close:
+                    date_str = datetime.strftime(
+                        datetime.fromtimestamp(candle.time / 1000, TZ), fmt
+                    )
+                    candles.append(
+                        f"{date_str},{candle.open},{candle.high},{candle.low},{candle.close}",
+                    )
+                if candle.time == ts:
+                    break
     candles.sort()
     gnuplot(sesh, future.symbol, candles)

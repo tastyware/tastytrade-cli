@@ -27,6 +27,7 @@ from tastytrade.order import (
 )
 from tastytrade.utils import TastytradeError, get_tasty_monthly
 from typer import Option
+from yaspin import yaspin
 
 from ttcli.utils import (
     ZERO,
@@ -181,12 +182,13 @@ async def call(
     greeks_dict: dict[str, Greeks] = {}
 
     if not strike:
-        async with DXLinkStreamer(sesh) as streamer:
-            await streamer.subscribe(Greeks, dxfeeds)
-            async for greek in streamer.listen(Greeks):
-                greeks_dict[greek.event_symbol] = greek
-                if len(greeks_dict) == len(dxfeeds):
-                    break
+        with yaspin(color="green", text="Fetching greeks..."):
+            async with DXLinkStreamer(sesh) as streamer:
+                await streamer.subscribe(Greeks, dxfeeds)
+                async for greek in streamer.listen(Greeks):
+                    greeks_dict[greek.event_symbol] = greek
+                    if len(greeks_dict) == len(dxfeeds):
+                        break
         greeks = list(greeks_dict.values())
         selected = min(greeks, key=lambda g: abs(g.delta * 100 - Decimal(delta or 0)))
         # set strike with the closest delta
@@ -416,12 +418,13 @@ async def put(
     greeks_dict: dict[str, Greeks] = {}
 
     if not strike:
-        async with DXLinkStreamer(sesh) as streamer:
-            await streamer.subscribe(Greeks, dxfeeds)
-            async for greek in streamer.listen(Greeks):
-                greeks_dict[greek.event_symbol] = greek
-                if len(greeks_dict) == len(dxfeeds):
-                    break
+        with yaspin(color="green", text="Fetching greeks..."):
+            async with DXLinkStreamer(sesh) as streamer:
+                await streamer.subscribe(Greeks, dxfeeds)
+                async for greek in streamer.listen(Greeks):
+                    greeks_dict[greek.event_symbol] = greek
+                    if len(greeks_dict) == len(dxfeeds):
+                        break
         greeks = list(greeks_dict.values())
         selected = min(greeks, key=lambda g: abs(g.delta * 100 + Decimal(delta or 0)))
         # set strike with the closest delta
@@ -665,12 +668,13 @@ async def strangle(
     greeks_dict: dict[str, Greeks] = {}
 
     if delta is not None:
-        async with DXLinkStreamer(sesh) as streamer:
-            await streamer.subscribe(Greeks, dxfeeds)
-            async for greek in streamer.listen(Greeks):
-                greeks_dict[greek.event_symbol] = greek
-                if len(greeks_dict) == len(dxfeeds):
-                    break
+        with yaspin(color="green", text="Fetching greeks..."):
+            async with DXLinkStreamer(sesh) as streamer:
+                await streamer.subscribe(Greeks, dxfeeds)
+                async for greek in streamer.listen(Greeks):
+                    greeks_dict[greek.event_symbol] = greek
+                    if len(greeks_dict) == len(dxfeeds):
+                        break
         put_greeks = [v for v in greeks_dict.values() if v.event_symbol in put_dxf]
         call_greeks = [v for v in greeks_dict.values() if v.event_symbol in call_dxf]
 
@@ -975,52 +979,55 @@ async def chain(
     if show_volume:
         table.add_column("Volume", justify="right")
 
-    async with DXLinkStreamer(sesh) as streamer:
-        if is_future:  # futures options
-            future = Future.get(sesh, subchain.underlying_symbol)  # type: ignore
-            await streamer.subscribe(Trade, [future.streamer_symbol])
-        else:
-            await streamer.subscribe(Trade, [symbol])
-        trade = await streamer.get_event(Trade)
+    with yaspin(color="green", text="Fetching quotes..."):
+        async with DXLinkStreamer(sesh) as streamer:
+            if is_future:  # futures options
+                future = Future.get(sesh, subchain.underlying_symbol)  # type: ignore
+                await streamer.subscribe(Trade, [future.streamer_symbol])
+            else:
+                await streamer.subscribe(Trade, [symbol])
+            trade = await streamer.get_event(Trade)
 
-        subchain.strikes.sort(key=lambda s: s.strike_price)
-        mid_index = 0
-        if strikes < len(subchain.strikes):
-            while subchain.strikes[mid_index].strike_price < trade.price:
+            subchain.strikes.sort(key=lambda s: s.strike_price)
+            mid_index = 0
+            if strikes < len(subchain.strikes):
+                while subchain.strikes[mid_index].strike_price < trade.price:
+                    mid_index += 1
+                half = strikes // 2
+                all_strikes = subchain.strikes[mid_index - half : mid_index + half]
+            else:
+                all_strikes = subchain.strikes
+            mid_index = 0
+            while all_strikes[mid_index].strike_price < trade.price:
                 mid_index += 1
-            half = strikes // 2
-            all_strikes = subchain.strikes[mid_index - half : mid_index + half]
-        else:
-            all_strikes = subchain.strikes
-        mid_index = 0
-        while all_strikes[mid_index].strike_price < trade.price:
-            mid_index += 1
 
-        dxfeeds = [s.call_streamer_symbol for s in all_strikes] + [
-            s.put_streamer_symbol for s in all_strikes
-        ]
+            dxfeeds = [s.call_streamer_symbol for s in all_strikes] + [
+                s.put_streamer_symbol for s in all_strikes
+            ]
 
-        # take into account the symbol we subscribed to
-        streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
-        trade_dict = defaultdict(lambda: 0)
-        trade_dict[streamer_symbol] = trade.day_volume or 0
+            # take into account the symbol we subscribed to
+            streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
+            trade_dict = defaultdict(lambda: 0)
+            trade_dict[streamer_symbol] = trade.day_volume or 0
 
-        greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
-        quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
-        tasks = [greeks_task, quote_task]
-        if show_oi:
-            summary_task = asyncio.create_task(
-                listen_events(dxfeeds, Summary, streamer)
-            )
-            tasks.append(summary_task)
-        if show_volume:
-            trade_task = asyncio.create_task(listen_events(dxfeeds, Trade, streamer))
-            tasks.append(trade_task)
-        await asyncio.gather(*tasks)  # wait for all tasks
-        greeks_dict = greeks_task.result()
-        quote_dict = quote_task.result()
-        if show_oi:
-            summary_dict = summary_task.result()  # type: ignore
+            greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
+            quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
+            tasks = [greeks_task, quote_task]
+            if show_oi:
+                summary_task = asyncio.create_task(
+                    listen_events(dxfeeds, Summary, streamer)
+                )
+                tasks.append(summary_task)
+            if show_volume:
+                trade_task = asyncio.create_task(
+                    listen_events(dxfeeds, Trade, streamer)
+                )
+                tasks.append(trade_task)
+            await asyncio.gather(*tasks)  # wait for all tasks
+            greeks_dict = greeks_task.result()
+            quote_dict = quote_task.result()
+            if show_oi:
+                summary_dict = summary_task.result()  # type: ignore
 
     for i, strike in enumerate(all_strikes):
         put_bid = quote_dict[strike.put_streamer_symbol].bid_price

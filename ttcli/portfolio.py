@@ -28,6 +28,7 @@ from tastytrade.order import (
 )
 from tastytrade.utils import TastytradeError, today_in_new_york
 from typer import Option
+from yaspin import yaspin
 
 from ttcli.utils import (
     ZERO,
@@ -129,8 +130,9 @@ async def positions(
     )
     all_symbols = [s for s in all_symbols if s]
     if greeks_symbols:
-        async with DXLinkStreamer(sesh) as streamer:
-            greeks_dict = await listen_events(greeks_symbols, Greeks, streamer)
+        with yaspin(color="green", text="Fetching greeks..."):
+            async with DXLinkStreamer(sesh) as streamer:
+                greeks_dict = await listen_events(greeks_symbols, Greeks, streamer)
     else:
         greeks_dict = {}
     data = await a_get_market_data_by_type(
@@ -458,14 +460,15 @@ def history(
 ):
     sesh = RenewableSession()
     acc = sesh.get_account()
-    history = acc.get_history(
-        sesh,
-        start_date=start_date.date() if start_date else None,
-        end_date=end_date.date() if end_date else None,
-        underlying_symbol=symbol if symbol and symbol[0] != "/" else None,
-        futures_symbol=symbol if symbol and symbol[0] == "/" else None,
-        instrument_type=type,
-    )
+    with yaspin(color="green", text="Fetching history..."):
+        history = acc.get_history(
+            sesh,
+            start_date=start_date.date() if start_date else None,
+            end_date=end_date.date() if end_date else None,
+            underlying_symbol=symbol if symbol and symbol[0] != "/" else None,
+            futures_symbol=symbol if symbol and symbol[0] == "/" else None,
+            instrument_type=type,
+        )
     if asc:
         history.reverse()
     console = Console()
