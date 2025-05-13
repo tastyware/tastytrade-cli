@@ -1,12 +1,12 @@
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, cast
+from typing import Annotated
 
 from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
-from tastytrade.account import MarginReportEntry
+from tastytrade.account import EmptyDict
 from tastytrade.dxfeed import Greeks
 from tastytrade.instruments import (
     Cryptocurrency,
@@ -545,17 +545,16 @@ def margin():
         "portfolio", "bp-max-percent-per-position", fallback=5.0
     )
     for i, entry in enumerate(margin.groups):
-        if not entry:
+        if isinstance(entry, EmptyDict):
             continue
-        entry = cast(MarginReportEntry, entry)
         bp = -entry.buying_power
         bp_percent = abs(float(bp / margin.margin_equity * 100))
-        if abs(bp_percent) > max_percent:
+        if abs(bp_percent) > max_percent and entry.underlying_type != "Equity":
             warnings.append(
                 f"Per-position BP usage is too high for {entry.description}, max is {max_percent}%!"
             )
         table.add_row(
-            *[entry.description, conditional_color(bp), f"{bp_percent:.1f}%"],
+            *[entry.code, conditional_color(bp), f"{bp_percent:.1f}%"],
             end_section=(i == last_entry),
         )
     bp_percent = abs(round(margin.margin_requirement / margin.margin_equity * 100, 1))

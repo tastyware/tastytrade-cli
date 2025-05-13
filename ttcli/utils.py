@@ -138,9 +138,8 @@ class RenewableSession(Session):
     def _get_credentials(self):
         username = os.getenv("TT_USERNAME")
         password = os.getenv("TT_PASSWORD")
-        if self.config.has_section("general"):
-            username = username or self.config["general"].get("username")
-            password = password or self.config["general"].get("password")
+        username = username or self.config.get("general", "username", fallback=None)
+        password = password or self.config.get("general", "password", fallback=None)
 
         if not username:
             username = getpass.getpass("Username: ")
@@ -150,7 +149,9 @@ class RenewableSession(Session):
         return username, password
 
     def get_account(self) -> Account:
-        account = self.config["general"].get("default-account", None)
+        if len(self.accounts) == 1:  # auto-select if there's only 1 option
+            return self.accounts[0]
+        account = self.config.get("general", "default-account", fallback=None)
         if account:
             try:
                 return next(a for a in self.accounts if a.account_number == account)
@@ -158,7 +159,6 @@ class RenewableSession(Session):
                 print_warning(
                     "Default account is set, but the account doesn't appear to exist!"
                 )
-
         for i in range(len(self.accounts)):
             if i == 0:
                 print(
