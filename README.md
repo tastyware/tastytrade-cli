@@ -10,9 +10,9 @@ An easy-to-use command line interface for Tastytrade!
 
 ## Installation
 
-The best way to install the CLI is by using [pipx](https://github.com/pypa/pipx). This will install `tt` to your path.
+The best way to install the CLI is by using [uv](https://github.com/astral-sh/uv). This will install `tt` to your path.
 ```
-$ pipx install tastytrade-cli
+$ uv tool install tastytrade-cli
 ```
 You can also install in a virtual environment:
 ```
