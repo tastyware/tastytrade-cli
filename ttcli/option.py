@@ -1028,6 +1028,8 @@ async def chain(
             quote_dict = quote_task.result()
             if show_oi:
                 summary_dict = summary_task.result()  # type: ignore
+            if show_volume:
+                trade_dict = trade_task.result()  # type: ignore
 
     for i, strike in enumerate(all_strikes):
         put_bid = quote_dict[strike.put_streamer_symbol].bid_price
@@ -1049,16 +1051,16 @@ async def chain(
             row.append(f"{put_delta:g}")
 
         if show_theta:
-            prepend.append(f"{abs(greeks_dict[strike.put_streamer_symbol].theta):.2f}")
-            row.append(f"{abs(greeks_dict[strike.call_streamer_symbol].theta):.2f}")
+            prepend.append(f"{abs(greeks_dict[strike.call_streamer_symbol].theta):.2f}")
+            row.append(f"{abs(greeks_dict[strike.put_streamer_symbol].theta):.2f}")
         if show_oi:
             prepend.append(
-                f"{summary_dict[strike.put_streamer_symbol].open_interest}"  # type: ignore
+                f"{summary_dict[strike.call_streamer_symbol].open_interest}"  # type: ignore
             )
-            row.append(f"{summary_dict[strike.call_streamer_symbol].open_interest}")  # type: ignore
+            row.append(f"{summary_dict[strike.put_streamer_symbol].open_interest}")  # type: ignore
         if show_volume:
-            prepend.append(f"{trade_dict[strike.put_streamer_symbol]}")  # type: ignore
-            row.append(f"{trade_dict[strike.call_streamer_symbol]}")  # type: ignore
+            prepend.append(f"{trade_dict[strike.call_streamer_symbol].day_volume}")  # type: ignore
+            row.append(f"{trade_dict[strike.put_streamer_symbol].day_volume}")  # type: ignore
 
         prepend.reverse()
         table.add_row(*(prepend + row), end_section=(i == mid_index - 1))
