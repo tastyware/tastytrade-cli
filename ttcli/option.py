@@ -932,23 +932,18 @@ async def chain(
         dte = sesh.config.getint("option", "default-dte", fallback=None)
     if strikes is None:
         strikes = sesh.config.getint("option", "strike-count", fallback=16)
-    is_future = symbol[0] == "/"
-    if is_future:  # futures options
-        chain = NestedFutureOptionChain.get(sesh, symbol)
-        subchain = choose_futures_expiration(chain, dte, weeklies)
-        ticks = subchain.tick_sizes
-    else:
-        chain = NestedOptionChain.get(sesh, symbol)[0]
-        subchain = choose_expiration(chain, dte, weeklies)
-        ticks = chain.tick_sizes
-    fmt = lambda x: round_to_tick_size(x, ticks)
+
+    with yaspin(color="green", text="Fetching chain data..."):
+        chain_info = await chain_data(symbol, strikes, weeklies, dte)
+    #strike_prices = sorted(list(set([info.strike_price for info in chain_info.dxinfo.values()])))
+    fmt = lambda x: round_to_tick_size(x, chain_info.tick_size)
 
     console = Console()
     table = Table(
         show_header=True,
         header_style="bold",
         title_style="bold",
-        title=f"Options chain for {symbol} expiring {subchain.expiration_date}",
+        title=f"Options chain for {symbol} expiring {chain_info.expiration_date}",
     )
 
     show_delta = sesh.config.getboolean("option.chain", "show-delta", fallback=True)
@@ -979,63 +974,11 @@ async def chain(
     if show_volume:
         table.add_column("Volume", justify="right")
 
-    with yaspin(color="green", text="Fetching quotes..."):
-        async with DXLinkStreamer(sesh) as streamer:
-            if is_future:  # futures options
-                future = Future.get(sesh, subchain.underlying_symbol)  # type: ignore
-                await streamer.subscribe(Trade, [future.streamer_symbol])
-            else:
-                await streamer.subscribe(Trade, [symbol])
-            trade = await streamer.get_event(Trade)
-
-            subchain.strikes.sort(key=lambda s: s.strike_price)
-            mid_index = 0
-            if strikes < len(subchain.strikes):
-                while subchain.strikes[mid_index].strike_price < trade.price:
-                    mid_index += 1
-                half = strikes // 2
-                all_strikes = subchain.strikes[mid_index - half : mid_index + half]
-            else:
-                all_strikes = subchain.strikes
-            mid_index = 0
-            while all_strikes[mid_index].strike_price < trade.price:
-                mid_index += 1
-
-            dxfeeds = [s.call_streamer_symbol for s in all_strikes] + [
-                s.put_streamer_symbol for s in all_strikes
-            ]
-
-            # take into account the symbol we subscribed to
-            streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
-            trade_dict = defaultdict(lambda: 0)
-            trade_dict[streamer_symbol] = trade.day_volume or 0
-
-            greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
-            quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
-            tasks = [greeks_task, quote_task]
-            if show_oi:
-                summary_task = asyncio.create_task(
-                    listen_events(dxfeeds, Summary, streamer)
-                )
-                tasks.append(summary_task)
-            if show_volume:
-                trade_task = asyncio.create_task(
-                    listen_events(dxfeeds, Trade, streamer)
-                )
-                tasks.append(trade_task)
-            await asyncio.gather(*tasks)  # wait for all tasks
-            greeks_dict = greeks_task.result()
-            quote_dict = quote_task.result()
-            if show_oi:
-                summary_dict = summary_task.result()  # type: ignore
-            if show_volume:
-                trade_dict = trade_task.result()  # type: ignore
-
-    for i, strike in enumerate(all_strikes):
-        put_bid = quote_dict[strike.put_streamer_symbol].bid_price
-        put_ask = quote_dict[strike.put_streamer_symbol].ask_price
-        call_bid = quote_dict[strike.call_streamer_symbol].bid_price
-        call_ask = quote_dict[strike.call_streamer_symbol].ask_price
+    for i, strike in enumerate(chain_info.strikes):
+        put_bid = chain_info.dxinfo[strike.put_streamer_symbol].bid_price
+        put_ask = chain_info.dxinfo[strike.put_streamer_symbol].ask_price
+        call_bid = chain_info.dxinfo[strike.call_streamer_symbol].bid_price
+        call_ask = chain_info.dxinfo[strike.call_streamer_symbol].ask_price
         row = [
             f"{fmt(call_bid)}",
             f"{fmt(call_ask)}",
@@ -1045,24 +988,141 @@ async def chain(
         ]
         prepend = []
         if show_delta:
-            put_delta = int(greeks_dict[strike.put_streamer_symbol].delta * 100)
-            call_delta = int(greeks_dict[strike.call_streamer_symbol].delta * 100)
+            put_delta = int(chain_info.dxinfo[strike.put_streamer_symbol].delta * 100)
+            call_delta = int(chain_info.dxinfo[strike.call_streamer_symbol].delta * 100)
             prepend.append(f"{call_delta:g}")
             row.append(f"{put_delta:g}")
 
         if show_theta:
-            prepend.append(f"{abs(greeks_dict[strike.call_streamer_symbol].theta):.2f}")
-            row.append(f"{abs(greeks_dict[strike.put_streamer_symbol].theta):.2f}")
+            prepend.append(f"{abs(chain_info.dxinfo[strike.call_streamer_symbol].theta):.2f}")
+            row.append(f"{abs(chain_info.dxinfo[strike.put_streamer_symbol].theta):.2f}")
         if show_oi:
             prepend.append(
-                f"{summary_dict[strike.call_streamer_symbol].open_interest}"  # type: ignore
+                f"{chain_info.dxinfo[strike.call_streamer_symbol].open_interest}"  # type: ignore
             )
-            row.append(f"{summary_dict[strike.put_streamer_symbol].open_interest}")  # type: ignore
+            row.append(f"{chain_info.dxinfo[strike.put_streamer_symbol].open_interest}")  # type: ignore
         if show_volume:
-            prepend.append(f"{trade_dict[strike.call_streamer_symbol].day_volume}")  # type: ignore
-            row.append(f"{trade_dict[strike.put_streamer_symbol].day_volume}")  # type: ignore
+            prepend.append(f"{chain_info.dxinfo[strike.call_streamer_symbol].day_volume}")  # type: ignore
+            row.append(f"{chain_info.dxinfo[strike.put_streamer_symbol].day_volume}")  # type: ignore
 
         prepend.reverse()
-        table.add_row(*(prepend + row), end_section=(i == mid_index - 1))
+        table.add_row(*(prepend + row)) #, end_section=(i == mid_index - 1))
 
     console.print(table)
+
+class DXInfo(Trade, Greeks, Quote, Summary):
+    strike_price: Decimal
+
+
+from datetime import date
+from tastytrade.instruments import Strike, TickSize
+from dataclasses import dataclass
+@dataclass
+class ChainInfo:
+    tick_size: TickSize
+    expiration_date: date
+    strikes: list[Strike]
+    dxinfo: dict[DXInfo]
+
+
+
+@option.command(help="Fetch options chain.", no_args_is_help=True)
+async def chain_data(
+    symbol: str,
+    strikes: Annotated[
+        int | None, Option("--strikes", "-s", help="The number of strikes to fetch.")
+    ] = None,
+    weeklies: Annotated[
+        bool, Option("--weeklies", help="Show all expirations, not just monthlies.")
+    ] = False,
+    dte: Annotated[
+        int | None, Option("--dte", help="Days to expiration for the chain.")
+    ] = None,
+):
+    sesh = RenewableSession()
+    symbol = symbol.upper()
+
+    if dte is None:
+        dte = sesh.config.getint("option", "default-dte", fallback=None)
+    if strikes is None:
+        strikes = sesh.config.getint("option", "strike-count", fallback=16)
+    is_future = symbol[0] == "/"
+    if is_future:  # futures options
+        chain = NestedFutureOptionChain.get(sesh, symbol)
+        subchain = choose_futures_expiration(chain, dte, weeklies)
+    else:
+        chain = NestedOptionChain.get(sesh, symbol)[0]
+        subchain = choose_expiration(chain, dte, weeklies)
+
+    async with DXLinkStreamer(sesh) as streamer:
+        if is_future:  # futures options
+            future = Future.get(sesh, subchain.underlying_symbol)  # type: ignore
+            await streamer.subscribe(Trade, [future.streamer_symbol])
+        else:
+            await streamer.subscribe(Trade, [symbol])
+        trade = await streamer.get_event(Trade)
+
+        subchain.strikes.sort(key=lambda s: s.strike_price)
+        mid_index = 0
+        if strikes < len(subchain.strikes):
+            while subchain.strikes[mid_index].strike_price < trade.price:
+                mid_index += 1
+            half = strikes // 2
+            all_strikes = subchain.strikes[mid_index - half : mid_index + half]
+        else:
+            all_strikes = subchain.strikes
+        mid_index = 0
+        while all_strikes[mid_index].strike_price < trade.price:
+            mid_index += 1
+
+        dxfeeds = [s.call_streamer_symbol for s in all_strikes] + [
+            s.put_streamer_symbol for s in all_strikes
+        ]
+
+        # take into account the symbol we subscribed to
+        streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
+        trade_dict = defaultdict(lambda: 0)
+        trade_dict[streamer_symbol] = trade.day_volume or 0
+
+        greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
+        quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
+        tasks = [greeks_task, quote_task]
+        summary_task = asyncio.create_task(
+            listen_events(dxfeeds, Summary, streamer)
+        )
+        tasks.append(summary_task)
+        trade_task = asyncio.create_task(
+            listen_events(dxfeeds, Trade, streamer)
+        )
+        tasks.append(trade_task)
+
+        await asyncio.gather(*tasks)  # wait for all tasks
+    greeks_dict = greeks_task.result()
+    quote_dict = quote_task.result()
+    summary_dict = summary_task.result()
+    trade_dict = trade_task.result()
+
+    # merged = {
+    #     k: {dict(greeks_dict[k]), dict(quote_dict[k]), dict(summary_dict[k]), dict(trade_dict[k])}
+    #     for k in quote_dict
+    # }
+    merged = {}
+    for k in quote_dict:
+        data = {}
+        for instance in (greeks_dict[k], quote_dict[k], summary_dict[k], trade_dict[k]):
+            data.update(instance.model_dump()) 
+        merged[k] = DXInfo.model_construct(**data) # skip validation
+
+    for i, strike in enumerate(all_strikes):
+        merged[strike.put_streamer_symbol].strike_price = strike.strike_price
+        merged[strike.call_streamer_symbol].strike_price = strike.strike_price
+
+    return ChainInfo(
+        tick_size=chain.tick_sizes,
+        expiration_date=subchain.expiration_date,
+        strikes=all_strikes,
+        dxinfo=merged
+    )
+
+
+
