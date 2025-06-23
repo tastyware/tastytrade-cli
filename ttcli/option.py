@@ -935,7 +935,6 @@ async def chain(
 
     with yaspin(color="green", text="Fetching chain data..."):
         chain_info = await chain_data(symbol, strikes, weeklies, dte)
-    #strike_prices = sorted(list(set([info.strike_price for info in chain_info.dxinfo.values()])))
     fmt = lambda x: round_to_tick_size(x, chain_info.tick_size)
 
     console = Console()
@@ -974,6 +973,7 @@ async def chain(
     if show_volume:
         table.add_column("Volume", justify="right")
 
+    mid_index = len(chain_info.strikes) // 2
     for i, strike in enumerate(chain_info.strikes):
         put_bid = chain_info.dxinfo[strike.put_streamer_symbol].bid_price
         put_ask = chain_info.dxinfo[strike.put_streamer_symbol].ask_price
@@ -1006,7 +1006,7 @@ async def chain(
             row.append(f"{chain_info.dxinfo[strike.put_streamer_symbol].day_volume}")  # type: ignore
 
         prepend.reverse()
-        table.add_row(*(prepend + row)) #, end_section=(i == mid_index - 1))
+        table.add_row(*(prepend + row), end_section=(i == mid_index - 1))
 
     console.print(table)
 
@@ -1014,19 +1014,20 @@ class DXInfo(Trade, Greeks, Quote, Summary):
     strike_price: Decimal
 
 
-from datetime import date
 from tastytrade.instruments import Strike, TickSize
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import timezone
+
 @dataclass
 class ChainInfo:
+    underlying_trade: Trade
     tick_size: TickSize
-    expiration_date: date
+    expiration_date: datetime
     strikes: list[Strike]
     dxinfo: dict[DXInfo]
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-
-@option.command(help="Fetch options chain.", no_args_is_help=True)
 async def chain_data(
     symbol: str,
     strikes: Annotated[
@@ -1097,20 +1098,20 @@ async def chain_data(
         tasks.append(trade_task)
 
         await asyncio.gather(*tasks)  # wait for all tasks
+        for type in (Trade, Greeks, Quote, Summary):
+            await streamer.unsubscribe_all(type)
+            # await streamer.unsubscribe(type, dxfeeds)
+
     greeks_dict = greeks_task.result()
     quote_dict = quote_task.result()
     summary_dict = summary_task.result()
     trade_dict = trade_task.result()
 
-    # merged = {
-    #     k: {dict(greeks_dict[k]), dict(quote_dict[k]), dict(summary_dict[k]), dict(trade_dict[k])}
-    #     for k in quote_dict
-    # }
     merged = {}
     for k in quote_dict:
         data = {}
         for instance in (greeks_dict[k], quote_dict[k], summary_dict[k], trade_dict[k]):
-            data.update(instance.model_dump()) 
+            data.update(instance.model_dump())
         merged[k] = DXInfo.model_construct(**data) # skip validation
 
     for i, strike in enumerate(all_strikes):
@@ -1118,11 +1119,89 @@ async def chain_data(
         merged[strike.call_streamer_symbol].strike_price = strike.strike_price
 
     return ChainInfo(
+        underlying_trade=trade,
         tick_size=chain.tick_sizes,
         expiration_date=subchain.expiration_date,
         strikes=all_strikes,
         dxinfo=merged
     )
 
+import os
+import pandas as pd
+import pytz
 
+def create_dataframe(chain_info: ChainInfo) -> pd.DataFrame:
+    data = []
+    for i, strike in enumerate(chain_info.strikes):
+        for pc in ['put','call']:
+            field_name = f'{pc}_streamer_symbol'
+            symbol = getattr(strike, field_name)
+            dxi = chain_info.dxinfo[ symbol ]
+            row = {
+                'last_trade_at': pd.to_datetime(dxi.time, unit='ms', utc=True),
+                'created_at': pd.to_datetime(chain_info.created_at, utc=True),
+                'symbol': dxi.event_symbol,
+                'putCall': pc.upper(),
+                'bid': dxi.bid_price,
+                'ask': dxi.ask_price,
+                'price': dxi.price,
+                'open_interest': dxi.open_interest,
+                'time': dxi.time,
+                'delta': dxi.delta,
+                'day_volume': dxi.day_volume,
+                'strike_price': dxi.strike_price,
+                'underlyingPrice': chain_info.underlying_trade.price,
+                }
+            data.append(row)
+    df = pd.DataFrame(data)
+    return df
 
+def merge_save_df(df, df_new, filename) -> pd.DataFrame:
+    """
+    Merge two dataframes and saves the merged dataframe to a parquet file.
+        1st time, df is none, df_new has size, and file does not exist
+        2nd time, df exists, df_new has size, and file does exist. clobber existing file.
+        On a restart, df is none, df_new has size, and file exists
+    Returns:
+    - pandas.DataFrame: The merged dataframe if the session was a total success.
+
+    TODO: Use last_trade_time rather than created to prevent updated while market is closed.
+    """
+    if df_new is None or df_new.empty: return df
+    if df is None and filename is not None and not os.path.exists(filename):
+        print(f"merge_save_df: create filename={filename}")
+        df_new.to_parquet(filename)
+        return df_new
+    if df is None and filename is not None and os.path.exists(filename):
+        df = pd.read_parquet(filename)
+    if df is not None and df.last_trade_at.max() >= df_new.last_trade_at.max():
+        print(f"merge_save_df: NOOP filename={filename}")
+        return df
+
+    df = pd.concat([df, df_new], ignore_index=True)
+    df.to_parquet(filename)
+    print(f"merge_save_df: clobber filename={filename}")
+    return df
+
+@option.command(help="Fetch option chain. Store to DF.", no_args_is_help=True)
+async def chaindf(
+    symbol: str,
+    strikes: Annotated[
+        int | None, Option("--strikes", "-s", help="The number of strikes to fetch.")
+    ] = None,
+    weeklies: Annotated[
+        bool, Option("--weeklies", help="Show all expirations, not just monthlies.")
+    ] = False,
+    dte: Annotated[
+        int | None, Option("--dte", help="Days to expiration for the chain.")
+    ] = None,
+    filename: Annotated[
+        str | None, Option("--file", help="Filename for dataframe")
+    ] = None,
+):
+    if filename is None:
+        ymd = datetime.now(pytz.timezone('US/Eastern')).strftime('%Y-%m-%d')
+        filename = f'{symbol}.{ymd}.chain.parquet'
+    chain_info = await chain_data(symbol, 20, True, 0)
+    df_new = create_dataframe(chain_info)
+    merge_save_df(None, df_new, filename)
