@@ -1142,6 +1142,7 @@ def create_dataframe(chain_info: ChainInfo) -> pd.DataFrame:
                 'created_at': pd.to_datetime(chain_info.created_at, utc=True),
                 'symbol': dxi.event_symbol,
                 'putCall': pc.upper(),
+                'strike': dxi.strike_price,
                 'bid': dxi.bid_price,
                 'ask': dxi.ask_price,
                 'price': dxi.price,
@@ -1149,8 +1150,8 @@ def create_dataframe(chain_info: ChainInfo) -> pd.DataFrame:
                 'time': dxi.time,
                 'delta': dxi.delta,
                 'day_volume': dxi.day_volume,
-                'strike_price': dxi.strike_price,
                 'underlyingPrice': chain_info.underlying_trade.price,
+                'expiration_date': chain_info.expiration_date,
                 }
             data.append(row)
     df = pd.DataFrame(data)
