@@ -6,7 +6,7 @@
 
 An easy-to-use command line interface for Tastytrade!
 
-![Peek2024-12-0322-18-ezgif com-speed](https://github.com/user-attachments/assets/0ca9d3a0-19d4-4eac-bd4a-db78d62a991f)
+https://github.com/user-attachments/assets/4a9db5c3-26c1-4b1a-a014-8c3f0fdbb754
 
 ## Installation
 
