@@ -995,14 +995,14 @@ async def chain(
             subchain.strikes.sort(key=lambda s: s.strike_price)
             mid_index = 0
             if strikes < len(subchain.strikes):
-                while subchain.strikes[mid_index].strike_price < trade.price:
+                while subchain.strikes[mid_index].strike_price < trade.price:  # type: ignore
                     mid_index += 1
                 half = strikes // 2
                 all_strikes = subchain.strikes[mid_index - half : mid_index + half]
             else:
                 all_strikes = subchain.strikes
             mid_index = 0
-            while all_strikes[mid_index].strike_price < trade.price:
+            while all_strikes[mid_index].strike_price < trade.price:  # type: ignore
                 mid_index += 1
 
             dxfeeds = [s.call_streamer_symbol for s in all_strikes] + [
@@ -1012,7 +1012,7 @@ async def chain(
             # take into account the symbol we subscribed to
             streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
             trade_dict: dict[str, Trade | None] = {}
-            trade_dict[streamer_symbol] = trade
+            trade_dict[streamer_symbol] = trade  # type: ignore
 
             greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
             quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
