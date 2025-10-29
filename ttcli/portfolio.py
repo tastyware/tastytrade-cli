@@ -13,10 +13,14 @@ from tastytrade.instruments import (
     Equity,
     Future,
     FutureOption,
-    Option as TastytradeOption,
     TickSize,
 )
-from tastytrade.market_data import a_get_market_data_by_type, get_market_data
+from tastytrade.instruments import (
+    Option as TastytradeOption,
+)
+from tastytrade.market_data import (
+    get_market_data_by_type,
+)
 from tastytrade.metrics import MarketMetricInfo, get_market_metrics
 from tastytrade.order import (
     InstrumentType,
@@ -49,8 +53,8 @@ portfolio = AsyncTyper(
 
 def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
     indicators = []
-    if metrics.dividend_next_date and metrics.dividend_next_date > today:
-        days_til = (metrics.dividend_next_date - today).days
+    if metrics.dividend_ex_date and metrics.dividend_ex_date > today:
+        days_til = (metrics.dividend_ex_date - today).days
         indicators.append(f"[deep_sky_blue2]D {days_til}[/deep_sky_blue2]")
     if (
         metrics.earnings
@@ -134,8 +138,8 @@ async def positions(
             async with DXLinkStreamer(sesh) as streamer:
                 greeks_dict = await listen_events(greeks_symbols, Greeks, streamer)
     else:
-        greeks_dict = {}
-    data = await a_get_market_data_by_type(
+        greeks_dict: dict[str, Greeks | None] = {}
+    data = get_market_data_by_type(
         sesh,
         cryptocurrencies=crypto_symbols or None,
         equities=equity_symbols,
@@ -153,8 +157,7 @@ async def positions(
     metrics_dict = defaultdict(
         lambda: MarketMetricInfo(symbol="", market_cap=ZERO, updated_at=datetime.now())
     )
-    for metric in metrics:
-        metrics_dict[metric.symbol] = metric
+    metrics_dict.update({m.symbol: m for m in metrics})
 
     table_show_mark = sesh.config.getboolean(
         "portfolio.positions", "show-mark-price", fallback=False
@@ -205,13 +208,14 @@ async def positions(
             o = options_dict[pos.symbol]
             closing.append(o)
             # BWD = beta * stock price * delta / index price
-            delta = greeks_dict[o.streamer_symbol].delta * 100 * m
-            theta = greeks_dict[o.streamer_symbol].theta * 100 * m
-            gamma = greeks_dict[o.streamer_symbol].gamma * 100 * m
+            greek = greeks_dict[o.streamer_symbol]
+            delta = greek.delta * 100 * m if greek else None
+            theta = greek.theta * 100 * m if greek else None
+            gamma = greek.gamma * 100 * m if greek else None
             metrics = metrics_dict[o.underlying_symbol]
             ticks = equity_dict[o.underlying_symbol].option_tick_sizes or []
             beta = metrics.beta or 0
-            bwd = beta * mark * delta / spy
+            bwd = beta * mark * delta / spy if delta else None
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             indicators = get_indicators(today, metrics)
             trade_price = pos.average_open_price
@@ -221,9 +225,10 @@ async def positions(
         elif pos.instrument_type == InstrumentType.FUTURE_OPTION:
             o = future_options_dict[pos.symbol]
             closing.append(o)
-            delta = greeks_dict[o.streamer_symbol].delta * 100 * m
-            theta = greeks_dict[o.streamer_symbol].theta * 100 * m
-            gamma = greeks_dict[o.streamer_symbol].gamma * 100 * m
+            greek = greeks_dict[o.streamer_symbol]
+            delta = greek.delta * 100 * m if greek else None
+            theta = greek.theta * 100 * m if greek else None
+            gamma = greek.gamma * 100 * m if greek else None
             # BWD = beta * stock price * delta / index price
             f = futures_dict[o.underlying_symbol]
             ticks = f.option_tick_sizes or []
@@ -231,8 +236,8 @@ async def positions(
             indicators = get_indicators(today, metrics)
             bwd = (
                 (prev_close(f.symbol) * metrics.beta * delta / spy)
-                if metrics.beta
-                else 0
+                if metrics.beta and delta
+                else None
             )
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             trade_price = pos.average_open_price
@@ -266,7 +271,7 @@ async def positions(
             # BWD = beta * stock price * delta / index price
             metrics = metrics_dict[f.future_product.root_symbol]  # type: ignore
             indicators = get_indicators(today, metrics)
-            bwd = (metrics.beta * mark_price * delta / spy) if metrics.beta else 0
+            bwd = (metrics.beta * mark_price * delta / spy) if metrics.beta else None
             ivr = (metrics.tw_implied_volatility_index_rank or 0) * 100
             trade_price = pos.average_open_price
             pnl = (mark_price - trade_price) * pos.quantity * m * f.notional_multiplier
@@ -297,7 +302,7 @@ async def positions(
             pnl_day = pnl
         sums["pnl"] += pnl
         sums["pnl_day"] += pnl_day
-        sums["bwd"] += bwd
+        sums["bwd"] += bwd or 0
         sums["net_liq"] += net_liq
         row.extend(
             [
@@ -311,14 +316,20 @@ async def positions(
             row.append(f"${round_to_tick_size(mark_price, ticks)}")
         if table_show_trade:
             row.append(f"${round_to_tick_size(trade_price, ticks)}")
-        row.append(f"{ivr:.1f}" if ivr else "--")
+        row.append(f"{ivr:.1f}" if ivr is not None else "--")
         if table_show_delta:
-            row.append(f"{delta:.2f}")
+            row.append(f"{delta:.2f}" if delta is not None else "--")
         if table_show_theta:
-            row.append(f"{theta:.2f}")
+            row.append(f"{theta:.2f}" if theta is not None else "--")
         if table_show_gamma:
-            row.append(f"{gamma:.2f}")
-        row.extend([f"{bwd:.2f}", conditional_color(net_liq), indicators])
+            row.append(f"{gamma:.2f}" if gamma is not None else "--")
+        row.extend(
+            [
+                f"{bwd:.2f}" if bwd is not None else "--",
+                conditional_color(net_liq),
+                indicators,
+            ]
+        )
         table.add_row(*row, end_section=(i == len(positions) - 1))
     # summary
     final_row = [""]
@@ -565,7 +576,7 @@ def margin():
             f"{bp_percent}%",
         ]
     )
-    data = get_market_data(sesh, "VIX", InstrumentType.INDEX)
+    data = get_market_data_by_type(sesh, indices=["VIX"])[0]
     console.print(table)
     bp_variation = sesh.config.getint(
         "portfolio", "bp-target-percent-variation", fallback=10

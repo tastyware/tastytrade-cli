@@ -63,15 +63,20 @@ def gnuplot(sesh: RenewableSession, symbol: str, candles: list[str]) -> None:
         f.write("\n".join(candles))
     first = candles[0].split(",")[0]
     last = candles[-1].split(",")[0]
-    total_time = datetime.strptime(last, fmt) - datetime.strptime(first, fmt)
+    first_dt = datetime.strptime(first, fmt)
+    last_dt = datetime.strptime(last, fmt)
+    total_time = last_dt - first_dt
     boxwidth = int(total_time.total_seconds() / len(candles) * 0.5)
+    padding = timedelta(seconds=boxwidth)
+    first_padded = (first_dt - padding).strftime(fmt)
+    last_padded = (last_dt + padding).strftime(fmt)
     font = sesh.config.get("plot", "font", fallback="Courier New")
     font_size = sesh.config.getint("plot", "font-size", fallback=11)
     gnu.set(
         terminal=f"kittycairo transparent font '{font},{font_size}'",
         xdata="time",
         timefmt=f'"{fmt}"',
-        xrange=f'["{first}":"{last}"]',
+        xrange=f'["{first_padded}":"{last_padded}"]',
         yrange="[*:*]",
         datafile='separator ","',
         palette="defined (-1 '#D32F2F', 1 '#26BE81')",
@@ -79,9 +84,9 @@ def gnuplot(sesh: RenewableSession, symbol: str, candles: list[str]) -> None:
         style="fill solid noborder",
         boxwidth=f"{boxwidth} absolute",
         title=f'"{symbol}" textcolor rgb "white"',
-        border="31 lc rgb 'white'",
-        xtics="textcolor rgb 'white'",
-        ytics="textcolor rgb 'white'",
+        border="3 lc rgb 'white'",
+        xtics="nomirror rotate by -45 textcolor rgb 'white' scale 0",
+        ytics="nomirror textcolor rgb 'white' scale 0",
     )
     gnu.unset("colorbox")
     os.system("clear")

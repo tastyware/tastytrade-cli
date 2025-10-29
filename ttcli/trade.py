@@ -4,9 +4,8 @@ from typing import Annotated
 from rich.console import Console
 from rich.table import Table
 from tastytrade.instruments import Cryptocurrency, Equity, Future, FutureProduct
-from tastytrade.market_data import get_market_data
+from tastytrade.market_data import get_market_data_by_type
 from tastytrade.order import (
-    InstrumentType,
     NewOrder,
     OrderAction,
     OrderTimeInForce,
@@ -48,7 +47,7 @@ def stock(
     equity = Equity.get(sesh, symbol)
     fmt = lambda x: round_to_tick_size(x, equity.tick_sizes or [])
 
-    data = get_market_data(sesh, symbol, InstrumentType.EQUITY)
+    data = get_market_data_by_type(sesh, equities=[symbol])[0]
     bid = data.bid or 0
     ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))
@@ -136,10 +135,11 @@ def crypto(symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)
         symbol += "/USD"
     elif "/" not in symbol:
         symbol = symbol.split("USD")[0] + "/USD"
+    symbol = symbol.replace("/", "%2F")
     crypto = Cryptocurrency.get(sesh, symbol)
     fmt = lambda x: round_to_width(x, crypto.tick_size)
 
-    data = get_market_data(sesh, symbol, InstrumentType.CRYPTOCURRENCY)
+    data = get_market_data_by_type(sesh, cryptocurrencies=[crypto.symbol])[0]
     bid = data.bid or 0
     ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))
@@ -243,7 +243,7 @@ def future(
     future = Future.get(sesh, symbol)
     fmt = lambda x: round_to_width(x, future.tick_size)
 
-    data = get_market_data(sesh, future.symbol, InstrumentType.FUTURE)
+    data = get_market_data_by_type(sesh, futures=[future.symbol])[0]
     bid = data.bid or 0
     ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))

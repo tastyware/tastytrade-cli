@@ -14,7 +14,7 @@ from ttcli.trade import trade
 from ttcli.utils import config_path
 from ttcli.watchlist import watchlist
 
-cli = Typer(no_args_is_help=True)
+cli = Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 
 
 @cli.callback(invoke_without_command=True, no_args_is_help=True)
@@ -40,7 +40,7 @@ cli.add_typer(order, name="order")
 cli.add_typer(plot, name="plot")
 cli.add_typer(portfolio, name="pf")
 cli.add_typer(trade, name="trade")
-cli.add_typer(watchlist, name=None)
+cli.add_typer(watchlist, name="wl")
 
 
 if __name__ == "__main__":

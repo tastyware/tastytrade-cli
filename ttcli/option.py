@@ -1,13 +1,13 @@
 import asyncio
-from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 
+from anyio import move_on_after
 from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
-from tastytrade.dxfeed import Greeks, Summary, Quote, Trade
+from tastytrade.dxfeed import Greeks, Quote, Summary, Trade
 from tastytrade.instruments import (
     Future,
     FutureOption,
@@ -15,11 +15,12 @@ from tastytrade.instruments import (
     NestedFutureOptionChainExpiration,
     NestedOptionChain,
     NestedOptionChainExpiration,
+)
+from tastytrade.instruments import (
     Option as TastytradeOption,
 )
-from tastytrade.market_data import get_market_data, get_market_data_by_type
+from tastytrade.market_data import get_market_data_by_type
 from tastytrade.order import (
-    InstrumentType,
     NewOrder,
     OrderAction,
     OrderTimeInForce,
@@ -217,11 +218,11 @@ async def call(
         bid = data_dict[strike_symbol].bid - data_dict[spread_strike.call].ask  # type: ignore
         ask = data_dict[strike_symbol].ask - data_dict[spread_strike.call].bid  # type: ignore
     else:
-        data = get_market_data(
+        data = get_market_data_by_type(
             sesh,
-            strike_symbol,
-            InstrumentType.FUTURE_OPTION if is_future else InstrumentType.EQUITY_OPTION,
-        )
+            future_options=[strike_symbol] if is_future else None,
+            options=[strike_symbol] if not is_future else None,
+        )[0]
         bid = data.bid or 0
         ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))
@@ -453,11 +454,11 @@ async def put(
         bid = data_dict[strike_symbol].bid - data_dict[spread_strike.call].ask  # type: ignore
         ask = data_dict[strike_symbol].ask - data_dict[spread_strike.call].bid  # type: ignore
     else:
-        data = get_market_data(
+        data = get_market_data_by_type(
             sesh,
-            strike_symbol,
-            InstrumentType.FUTURE_OPTION if is_future else InstrumentType.EQUITY_OPTION,
-        )
+            future_options=[strike_symbol] if is_future else None,
+            options=[strike_symbol] if not is_future else None,
+        )[0]
         bid = data.bid or 0
         ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))
@@ -640,7 +641,7 @@ async def strangle(
     if (call is not None or put is not None) and delta is not None:
         print_error("Must specify either delta or strike, but not both.")
         return
-    elif delta is not None and (call is not None or put is not None):
+    elif delta is None and (call is None or put is None):
         print_error("Please specify either delta, or strikes for both options.")
         return
     elif delta is not None and abs(delta) > 99:
@@ -901,7 +902,7 @@ async def strangle(
     if data.warnings:
         for warning in data.warnings:
             print_warning(warning.message)
-    warn_percent = sesh.config.getint(
+    warn_percent = sesh.config.getfloat(
         "portfolio", "bp-max-percent-per-position", fallback=None
     )
     if warn_percent and percent > warn_percent:
@@ -986,7 +987,10 @@ async def chain(
                 await streamer.subscribe(Trade, [future.streamer_symbol])
             else:
                 await streamer.subscribe(Trade, [symbol])
-            trade = await streamer.get_event(Trade)
+            with move_on_after(3) as scope:
+                trade = await streamer.get_event(Trade)
+            if scope.cancelled_caught:
+                raise Exception("Timed out listening for quote, is symbol active?")
 
             subchain.strikes.sort(key=lambda s: s.strike_price)
             mid_index = 0
@@ -1007,8 +1011,8 @@ async def chain(
 
             # take into account the symbol we subscribed to
             streamer_symbol = symbol if symbol[0] != "/" else future.streamer_symbol  # type: ignore
-            trade_dict = defaultdict(lambda: 0)
-            trade_dict[streamer_symbol] = trade.day_volume or 0
+            trade_dict: dict[str, Trade | None] = {}
+            trade_dict[streamer_symbol] = trade
 
             greeks_task = asyncio.create_task(listen_events(dxfeeds, Greeks, streamer))
             quote_task = asyncio.create_task(listen_events(dxfeeds, Quote, streamer))
@@ -1029,38 +1033,37 @@ async def chain(
             if show_oi:
                 summary_dict = summary_task.result()  # type: ignore
             if show_volume:
-                trade_dict = trade_task.result()  # type: ignore
+                trade_dict.update(trade_task.result())  # type: ignore
 
     for i, strike in enumerate(all_strikes):
-        put_bid = quote_dict[strike.put_streamer_symbol].bid_price
-        put_ask = quote_dict[strike.put_streamer_symbol].ask_price
-        call_bid = quote_dict[strike.call_streamer_symbol].bid_price
-        call_ask = quote_dict[strike.call_streamer_symbol].ask_price
+        put = quote_dict[strike.put_streamer_symbol]
+        call = quote_dict[strike.call_streamer_symbol]
         row = [
-            f"{fmt(call_bid)}",
-            f"{fmt(call_ask)}",
+            f"{fmt(call.bid_price)}" if call else "",
+            f"{fmt(call.ask_price)}" if call else "",
             f"{fmt(strike.strike_price)}",
-            f"{fmt(put_bid)}",
-            f"{fmt(put_ask)}",
+            f"{fmt(put.bid_price)}" if put else "",
+            f"{fmt(put.ask_price)}" if put else "",
         ]
         prepend = []
+        put_greek = greeks_dict[strike.put_streamer_symbol]
+        call_greek = greeks_dict[strike.call_streamer_symbol]
         if show_delta:
-            put_delta = int(greeks_dict[strike.put_streamer_symbol].delta * 100)
-            call_delta = int(greeks_dict[strike.call_streamer_symbol].delta * 100)
-            prepend.append(f"{call_delta:g}")
-            row.append(f"{put_delta:g}")
-
+            prepend.append(f"{int(call_greek.delta * 100):g}" if call_greek else "")
+            row.append(f"{int(put_greek.delta * 100):g}" if put_greek else "")
         if show_theta:
-            prepend.append(f"{abs(greeks_dict[strike.call_streamer_symbol].theta):.2f}")
-            row.append(f"{abs(greeks_dict[strike.put_streamer_symbol].theta):.2f}")
+            prepend.append(f"{abs(call_greek.theta):.2f}" if call_greek else "")
+            row.append(f"{abs(put_greek.theta):.2f}" if put_greek else "")
         if show_oi:
-            prepend.append(
-                f"{summary_dict[strike.call_streamer_symbol].open_interest}"  # type: ignore
-            )
-            row.append(f"{summary_dict[strike.put_streamer_symbol].open_interest}")  # type: ignore
+            call_summary = summary_dict[strike.call_streamer_symbol]  # type: ignore
+            put_summary = summary_dict[strike.put_streamer_symbol]  # type: ignore
+            prepend.append(f"{call_summary.open_interest}" if call_summary else "")
+            row.append(f"{put_summary.open_interest}" if put_summary else "")
         if show_volume:
-            prepend.append(f"{trade_dict[strike.call_streamer_symbol].day_volume}")  # type: ignore
-            row.append(f"{trade_dict[strike.put_streamer_symbol].day_volume}")  # type: ignore
+            call_trade = trade_dict[strike.call_streamer_symbol]
+            put_trade = trade_dict[strike.put_streamer_symbol]
+            prepend.append(f"{call_trade.day_volume or 0}" if call_trade else "")
+            row.append(f"{put_trade.day_volume or 0}" if put_trade else "")
 
         prepend.reverse()
         table.add_row(*(prepend + row), end_section=(i == mid_index - 1))

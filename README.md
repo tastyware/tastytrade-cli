@@ -19,9 +19,6 @@ You can also install in a virtual environment:
 $ pip install tastytrade-cli
 ```
 
-> [!WARNING]  
-> The CLI is still under active development. Please report any bugs, and contributions are always welcome!
-
 ## Usage
 
 Available commands:
@@ -31,7 +28,7 @@ tt pf (portfolio)      view and close positions, check margin and analyze BP usa
 tt trade               buy or sell stocks/ETFs, crypto, and futures
 tt order               view, replace, and cancel orders
 tt plot                plot charts directly in the terminal! requires `gnuplot` installed
-tt wl (watchlist)      view prices and metrics for symbols in your watchlists (pending further development!)
+tt wl (watchlist)      view prices and metrics for symbols in your watchlists
 ```
 For more options, run `tt --help` or `tt <subcommand> --help`.
 

@@ -43,6 +43,8 @@ def live(
         for o in orders
         if o.status == OrderStatus.LIVE or o.status == OrderStatus.RECEIVED
     ]
+    if not orders:
+        return
     instrument_dict: dict[InstrumentType, set[str]] = defaultdict(set)
     for o in orders:
         for leg in o.legs:

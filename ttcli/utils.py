@@ -1,21 +1,24 @@
 import asyncio
-from functools import partial, wraps
 import getpass
 import inspect
 import json
 import os
 import pickle
+from collections import defaultdict
 from configparser import ConfigParser
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from functools import partial, wraps
 from typing import Any, Callable, Type
 
 import httpx
+from anyio import move_on_after
 from rich import print as rich_print
 from tastytrade import API_URL, Account, DXLinkStreamer, Session
 from tastytrade.instruments import TickSize
 from tastytrade.order import OrderAction
 from tastytrade.streamer import U
+from tastytrade.utils import TastytradeError, now_in_new_york
 from typer import Typer
 
 from ttcli import CUSTOM_CONFIG_PATH, TOKEN_PATH, VERSION, logger
@@ -24,6 +27,7 @@ ZERO = Decimal(0)
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
+_fmt = "%Y-%m-%d %H:%M:%S%z"
 config_path = os.path.join(os.path.expanduser("~"), CUSTOM_CONFIG_PATH)
 
 
@@ -41,13 +45,14 @@ def decimalify(val: str) -> Decimal:
 
 async def listen_events(
     dxfeeds: list[str], event_class: Type[U], streamer: DXLinkStreamer
-) -> dict[str, U]:
-    event_dict = {}
+) -> dict[str, U | None]:
+    event_dict: dict[str, U | None] = defaultdict(lambda: None)
     await streamer.subscribe(event_class, dxfeeds)
-    async for event in streamer.listen(event_class):
-        event_dict[event.event_symbol] = event
-        if len(event_dict) == len(dxfeeds):
-            break
+    with move_on_after(3):
+        async for event in streamer.listen(event_class):
+            event_dict[event.event_symbol] = event
+            if len(event_dict) == len(dxfeeds):
+                break
     return event_dict
 
 
@@ -112,7 +117,13 @@ class RenewableSession(Session):
                 self._deserialize(data)
 
             # make sure token hasn't expired
-            logged_in = self.validate()
+            if now_in_new_york() > self.session_expiration - timedelta(seconds=30):
+                try:
+                    self.refresh()
+                    logged_in = True
+                except TastytradeError:
+                    logger.debug("Failed to load session from token, reinitializing...")
+                    logged_in = False
 
         # load config; should always exist
         self.config = ConfigParser()
@@ -120,8 +131,8 @@ class RenewableSession(Session):
 
         if not logged_in:
             # either the token expired or doesn't exist
-            username, password = self._get_credentials()
-            Session.__init__(self, username, password)
+            refresh, secret = self._get_credentials()
+            Session.__init__(self, secret, refresh)
 
             # write session token to cache
             os.makedirs(os.path.dirname(token_path), exist_ok=True)
@@ -136,17 +147,17 @@ class RenewableSession(Session):
         self.accounts = [acc for acc in accounts if not acc.is_closed]
 
     def _get_credentials(self):
-        username = os.getenv("TT_USERNAME")
-        password = os.getenv("TT_PASSWORD")
-        username = username or self.config.get("general", "username", fallback=None)
-        password = password or self.config.get("general", "password", fallback=None)
+        refresh = os.getenv("TT_REFRESH")
+        secret = os.getenv("TT_SECRET")
+        refresh = refresh or self.config.get("general", "refresh_token")
+        secret = secret or self.config.get("general", "client_secret")
 
-        if not username:
-            username = getpass.getpass("Username: ")
-        if not password:
-            password = getpass.getpass("Password: ")
+        if not refresh:
+            refresh = getpass.getpass("Refresh Token: ")
+        if not secret:
+            secret = getpass.getpass("Client Secret: ")
 
-        return username, password
+        return refresh, secret
 
     def get_account(self) -> Account:
         if len(self.accounts) == 1:  # auto-select if there's only 1 option
@@ -186,6 +197,12 @@ class RenewableSession(Session):
             "Content-Type": "application/json",
             "Authorization": self.session_token,
         }
+        self.session_expiration = datetime.strptime(
+            deserialized["session_expiration"], _fmt
+        )
+        self.streamer_expiration = datetime.strptime(
+            deserialized["streamer_expiration"], _fmt
+        )
         self.sync_client = httpx.Client(base_url=API_URL, headers=headers)
         self.async_client = httpx.AsyncClient(base_url=API_URL, headers=headers)
 
