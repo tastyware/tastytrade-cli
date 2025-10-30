@@ -215,13 +215,14 @@ async def positions(
             metrics = metrics_dict[o.underlying_symbol]
             ticks = equity_dict[o.underlying_symbol].option_tick_sizes or []
             beta = metrics.beta or 0
-            bwd = beta * mark * delta / spy if delta else None
+            underlying_price = data_dict[o.underlying_symbol].last or ZERO
+            bwd = beta * underlying_price * delta / spy if delta else None
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             indicators = get_indicators(today, metrics)
             trade_price = pos.average_open_price
             pnl = (mark_price - trade_price) * m * pos.multiplier
             day_change = mark_price - prev_close(o.symbol)
-            pnl_day = day_change * pos.quantity * pos.multiplier
+            pnl_day = day_change * pos.quantity * pos.multiplier * m
         elif pos.instrument_type == InstrumentType.FUTURE_OPTION:
             o = future_options_dict[pos.symbol]
             closing.append(o)
@@ -243,7 +244,7 @@ async def positions(
             trade_price = pos.average_open_price
             pnl = (mark_price - trade_price) * m * pos.multiplier
             day_change = mark_price - prev_close(o.symbol)
-            pnl_day = day_change * pos.quantity * pos.multiplier
+            pnl_day = day_change * pos.quantity * pos.multiplier * m
         elif pos.instrument_type == InstrumentType.EQUITY:
             theta = 0
             gamma = 0
@@ -260,7 +261,7 @@ async def positions(
             pnl = mark - pos.average_open_price * pos.quantity * m
             trade_price = pos.average_open_price
             day_change = mark_price - prev_close(pos.symbol)
-            pnl_day = day_change * pos.quantity
+            pnl_day = day_change * pos.quantity * m
         elif pos.instrument_type == InstrumentType.FUTURE:
             theta = 0
             gamma = 0
@@ -276,7 +277,7 @@ async def positions(
             trade_price = pos.average_open_price
             pnl = (mark_price - trade_price) * pos.quantity * m * f.notional_multiplier
             day_change = mark_price - prev_close(f.symbol)
-            pnl_day = day_change * pos.quantity * f.notional_multiplier
+            pnl_day = day_change * pos.quantity * f.notional_multiplier * m
             net_liq = pnl_day
         elif pos.instrument_type == InstrumentType.CRYPTOCURRENCY:
             theta = 0
@@ -292,7 +293,7 @@ async def positions(
             ticks = [TickSize(value=c.tick_size)]
             closing.append(c)
             day_change = mark_price - prev_close(c.symbol)
-            pnl_day = day_change * pos.quantity * pos.multiplier
+            pnl_day = day_change * pos.quantity * pos.multiplier * m
         else:
             print_warning(
                 f"Skipping {pos.symbol}, unknown instrument type {pos.instrument_type}!"
