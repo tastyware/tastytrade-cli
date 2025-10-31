@@ -317,16 +317,16 @@ async def positions(
             row.append(f"${round_to_tick_size(mark_price, ticks)}")
         if table_show_trade:
             row.append(f"${round_to_tick_size(trade_price, ticks)}")
-        row.append(f"{ivr:.1f}" if ivr is not None else "--")
+        row.append(f"{ivr:.1f}" if ivr is not None else "")
         if table_show_delta:
-            row.append(f"{delta:.2f}" if delta is not None else "--")
+            row.append(f"{delta:.2f}" if delta is not None else "")
         if table_show_theta:
-            row.append(f"{theta:.2f}" if theta is not None else "--")
+            row.append(f"{theta:.2f}" if theta is not None else "")
         if table_show_gamma:
-            row.append(f"{gamma:.2f}" if gamma is not None else "--")
+            row.append(f"{gamma:.2f}" if gamma is not None else "")
         row.extend(
             [
-                f"{bwd:.2f}" if bwd is not None else "--",
+                f"{bwd:.2f}" if bwd is not None else "",
                 conditional_color(net_liq),
                 indicators,
             ]
@@ -512,7 +512,7 @@ def history(
         table.add_row(
             *[
                 txn.executed_at.strftime("%Y-%m-%d %H:%M"),
-                txn.underlying_symbol or "--",
+                txn.underlying_symbol or "",
                 txn.transaction_type,
                 txn.description,
                 conditional_color(txn.value),
