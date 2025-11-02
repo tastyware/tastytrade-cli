@@ -28,6 +28,7 @@ tt pf (portfolio)      view and close positions, check margin and analyze BP usa
 tt trade               buy or sell stocks/ETFs, crypto, and futures
 tt order               view, replace, and cancel orders
 tt plot                plot charts directly in the terminal! requires `gnuplot` installed
+tt plot gamma          plots the gamma exposure of any given ticker for any expiration, it can also do vanna, charm and delta greeks 
 tt wl (watchlist)      view prices and metrics for symbols in your watchlists
 ```
 For more options, run `tt --help` or `tt <subcommand> --help`.
