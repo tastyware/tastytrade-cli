@@ -1,5 +1,6 @@
 import asyncio
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -7,6 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
 from tastytrade.dxfeed import Greeks, Quote, Summary, Trade
+from tastytrade.metrics import MarketMetricInfo, get_market_metrics
 from tastytrade.instruments import (
     Equity,
     Future,
@@ -31,6 +33,13 @@ from tastytrade.utils import TastytradeError, get_tasty_monthly
 from typer import Option
 from yaspin import yaspin
 
+from ttcli.modules.calc import calc_exposures
+from pygnuplot.gnuplot import Gnuplot
+import pandas as pd
+import numpy as np
+from zoneinfo import ZoneInfo
+
+
 from ttcli.utils import (
     ZERO,
     AsyncTyper,
@@ -43,6 +52,10 @@ from ttcli.utils import (
     print_error,
     print_warning,
     round_to_tick_size,
+    is_third_friday,
+    get_SOFR_ticker,
+    next_open_day,
+    expir_to_datetime
 )
 
 
@@ -57,12 +70,8 @@ def choose_expiration(
     else:
         exps = [e for e in chain.expirations if is_monthly(e.expiration_date)]
     if dte is not None:
-        return min(
-            exps,
-            key=lambda exp: abs(
-                (exp.expiration_date - datetime.now().date()).days - dte
-            ),
-        )
+        return exps[dte]
+    
     exps.sort(key=lambda e: e.expiration_date)
     tasty_monthly = get_tasty_monthly()
     default = exps[0]
@@ -95,10 +104,7 @@ def choose_futures_expiration(
     else:
         exps = [e for e in subchain.expirations if e.expiration_type != "Weekly"]
     if dte is not None:
-        return min(
-            exps,
-            key=lambda exp: abs(exp.days_to_expiration - dte),
-        )
+        return exps[dte]
     exps.sort(key=lambda e: e.expiration_date)
     # find closest to 45 DTE
     default = min(exps, key=lambda e: abs(e.days_to_expiration - 45))
@@ -1074,3 +1080,190 @@ async def chain(
         table.add_row(*(prepend + row), end_section=(i == mid_index - 1))
 
     console.print(table)
+
+async def get_futures_price(sesh, symbol):
+    is_future = symbol[0] == "/"
+    if is_future:
+        future = Future.get(sesh, symbol)
+    async with DXLinkStreamer(sesh) as streamer:
+        if is_future:
+            await streamer.subscribe(Trade, [future.streamer_symbol])
+        
+        trade = await streamer.get_event(Trade)
+        return trade.price
+
+async def fetch_chain_for_dte(sesh, symbol, strikes, dte, weeklies=True):
+    # Makes a DataFrame of options for one DTE, only one date 
+    is_future = symbol[0] == "/"
+    if is_future:
+        chain = NestedFutureOptionChain.get(sesh, symbol)
+        subchain = choose_futures_expiration(chain, dte, weeklies)
+        ticks = subchain.tick_sizes
+    else:
+        chain = NestedOptionChain.get(sesh, symbol)[0]
+        subchain = choose_expiration(chain, dte, weeklies)
+        ticks = chain.tick_sizes
+    fmt = lambda x: round_to_tick_size(x, ticks)
+
+    # Spot price
+    async with DXLinkStreamer(sesh) as streamer:
+        if is_future:
+            future = Future.get(sesh, subchain.underlying_symbol)
+            await streamer.subscribe(Trade, [future.streamer_symbol])
+        else:
+            await streamer.subscribe(Trade, [symbol])
+        trade = await streamer.get_event(Trade)
+
+        # Choose strikes
+        subchain.strikes.sort(key=lambda s: s.strike_price)
+        mid_index = 0
+        if strikes < len(subchain.strikes):
+            while subchain.strikes[mid_index].strike_price < trade.price:
+                mid_index += 1
+            half = strikes // 2
+            all_strikes = subchain.strikes[mid_index - half : mid_index + half]
+        else:
+            all_strikes = subchain.strikes
+
+        dxfeeds = [s.call_streamer_symbol for s in all_strikes] + [
+            s.put_streamer_symbol for s in all_strikes
+        ]
+
+    
+        tasks = [
+            asyncio.create_task(listen_events(dxfeeds, Greeks, streamer)),
+            asyncio.create_task(listen_events(dxfeeds, Summary, streamer)),
+        ]
+        await asyncio.gather(*tasks)
+        greeks_dict = tasks[0].result()
+        summary_dict = tasks[1].result()
+
+
+    # Create the dataframe
+    data_rows = []
+    expiration = pd.Timestamp(subchain.expiration_date).tz_localize("America/New_York")
+
+    for strike in all_strikes:
+        call_greek = greeks_dict.get(strike.call_streamer_symbol)
+        put_greek = greeks_dict.get(strike.put_streamer_symbol)
+        call_summary = summary_dict.get(strike.call_streamer_symbol)
+        put_summary = summary_dict.get(strike.put_streamer_symbol)
+
+        data_rows.append({
+            "strike_price": fmt(strike.strike_price),
+            "expiration_date": expiration,
+            "calls": strike.call,
+            "call_iv": float(call_greek.volatility) if call_greek else None,
+            "call_open_int": call_summary.open_interest if call_summary else None,
+            "call_delta": float(call_greek.delta) if call_greek else None,
+            "call_gamma": float(call_greek.gamma) if call_greek else None,
+            "puts": strike.put,
+            "put_iv": float(put_greek.volatility) if put_greek else None,
+            "put_open_int": put_summary.open_interest if put_summary else None,
+            "put_delta": float(put_greek.delta) if put_greek else None,
+            "put_gamma": float(put_greek.gamma) if put_greek else None,
+        })
+
+    df = pd.DataFrame(data_rows)
+    today = date.today()
+    exp_dates = pd.to_datetime(df["expiration_date"].dt.tz_localize(None)).values.astype("datetime64[D]")    
+    busday_counts = np.busday_count(today, exp_dates)
+
+    df["time_till_exp"] = np.where(busday_counts == 0, 1 / 252, busday_counts / 252)
+
+    df = df.sort_values(by=["expiration_date", "strike_price"]).reset_index(drop=True)
+    return df, trade.price
+
+
+async def chain_data_df(
+    symbol: str,
+    strikes: Annotated[int | None, Option("--strikes", "-s")] = None,
+    dte: Annotated[int | None, Option("--dte")] = None,
+    greek: str = "gamma",
+    save: Annotated[bool, Option("--save", "-S", is_flag=True, help="Save the generated data")] = False
+):
+    weeklies = True
+    sesh = RenewableSession()
+    symbol = symbol.upper()
+
+    spot_price = 0
+    SOFRrate = 0
+
+    if strikes is None:
+        strikes = sesh.config.getint("option", "strike-count", fallback=50)
+
+    if dte is None:
+        return await fetch_chain_for_dte(sesh, symbol, strikes, None, weeklies)
+    else:
+        # Recursively keep loading the data from DTE, then DTE - 1, then DTE - 2, and so on till DTE == 0
+        all_dfs = []
+        total = dte + 1  # total number of DTEs to load
+
+        with yaspin(color="green", text=f"Fetching option chains for {symbol}...") as spinner:
+            for i, d in enumerate(range(dte, -1, -1), start=1):
+                spinner.text = f"Fetching DTE={d} ({i}/{total})..."
+                try:
+                    df, spot_price = await fetch_chain_for_dte(sesh, symbol, strikes, d, weeklies)
+                    all_dfs.append(df)
+                except Exception as e:
+                    spinner.write(f"⚠️ Error fetching DTE={d}: {e}")
+                    continue
+
+            if all_dfs:
+                spinner.ok("Done, no errors")
+                option_data = pd.concat(all_dfs, ignore_index=True)
+            else:
+                spinner.fail("No data retrieved, error")
+                option_data = pd.DataFrame()
+
+    option_data["expiration_date"] = pd.to_datetime(option_data["expiration_date"])
+    
+    first_expiry = option_data["expiration_date"].min()
+    expir = option_data["expiration_date"].max()
+    tz = ZoneInfo("America/New_York")
+    today_ddt = pd.Timestamp.now(tz=tz)
+    today_ddt_string = today_ddt.strftime("%Y %b %d, %I:%M %p %Z")
+    this_monthly_opex, _ = is_third_friday(first_expiry, "America/New_York")
+    dividend_yield = 0
+    SOFRrate = await get_futures_price(sesh, get_SOFR_ticker())
+    SOFR_yield = float((100 - SOFRrate)/100)
+    list_tickers = [symbol]
+    metrics = get_market_metrics(sesh, list_tickers)
+    metrics_dict = defaultdict(
+            lambda: MarketMetricInfo(
+                symbol="", market_cap=ZERO, updated_at=datetime.now()
+            )
+        )
+    metrics_dict.update({m.symbol: m for m in metrics})
+    for key in metrics_dict.keys():
+        metric = metrics_dict[key]
+        dividend_yield = metric.dividend_yield
+
+    option_data["strike_price"] = option_data["strike_price"].apply(float)
+    option_data["strike_price"] = option_data["strike_price"].to_numpy(dtype=np.float64)
+    option_data["call_open_int"] = option_data["call_open_int"].astype(np.float64)
+    option_data["put_open_int"] = option_data["put_open_int"].astype(np.float64)
+    spot_price = float(spot_price)
+    SOFR_yield = float(SOFR_yield)
+    if dividend_yield:
+        dividend_yield = float(dividend_yield)
+    else:
+        dividend_yield = float(0)
+    expir = str(dte) + "dte"
+    exposure_data = await calc_exposures(option_data,
+          symbol,
+          expir,
+          first_expiry,
+          this_monthly_opex,
+          spot_price,
+          today_ddt,
+          today_ddt_string,
+          SOFR_yield,
+          dividend_yield
+    )
+    lower_strike = float(option_data["strike_price"].min())
+    upper_strike = float(option_data["strike_price"].max())
+    greek_filter = greek
+    exposure_data = exposure_data + (expir,symbol,lower_strike, upper_strike, greek_filter, save)
+    return exposure_data
+
