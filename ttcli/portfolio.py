@@ -556,20 +556,36 @@ def margin():
     max_percent = sesh.config.getfloat(
         "portfolio", "bp-max-percent-per-position", fallback=5.0
     )
+    ignore_symbols = (
+        sesh.config.get("portfolio.margin", "ignore-bp-usage-for-symbols", fallback="")
+        .upper()
+        .strip()
+        .split(",")
+    )
+    margin_usage = ZERO
     for i, entry in enumerate(margin.groups):
         if isinstance(entry, EmptyDict):
             continue
         bp = -entry.buying_power
         bp_percent = abs(float(bp / margin.margin_equity * 100))
-        if abs(bp_percent) > max_percent and entry.underlying_type != "Equity":
-            warnings.append(
-                f"Per-position BP usage is too high for {entry.description}, max is {max_percent}%!"
+        if entry.code not in ignore_symbols:
+            margin_usage += entry.buying_power
+            if abs(bp_percent) > max_percent and entry.underlying_type != "Equity":
+                warnings.append(
+                    f"Per-position BP usage is too high for {entry.description}, max is {max_percent}%!"
+                )
+            table.add_row(
+                *[entry.code, conditional_color(bp), f"{bp_percent:.1f}%"],
+                end_section=(i == last_entry),
             )
-        table.add_row(
-            *[entry.code, conditional_color(bp), f"{bp_percent:.1f}%"],
-            end_section=(i == last_entry),
-        )
-    bp_percent = abs(round(margin.margin_requirement / margin.margin_equity * 100, 1))
+        else:
+            dollars = f"[italic][bright_black]${abs(bp):.2f}[/bright_black][/italic]"
+            percent = f"[italic][bright_black]{bp_percent:.1f}%[/bright_black][/italic]"
+            table.add_row(
+                *[entry.code, dollars, percent],
+                end_section=(i == last_entry),
+            )
+    bp_percent = abs(round(margin_usage / margin.margin_equity * 100, 1))
     table.add_row(
         *[
             "",
@@ -592,6 +608,23 @@ def margin():
         )
     for warning in warnings:
         print_warning(warning)
+
+
+def get_margin_rate(margin_usage: Decimal) -> Decimal:
+    margin_usage = abs(margin_usage)
+    if margin_usage < 25_000:
+        return Decimal("0.11")
+    if margin_usage < 50_000:
+        return Decimal("0.105")
+    if margin_usage < 100_000:
+        return Decimal("0.1")
+    if margin_usage < 250_000:
+        return Decimal("0.095")
+    if margin_usage < 500_000:
+        return Decimal("0.09")
+    if margin_usage < 1_000_000:
+        return Decimal("0.085")
+    return Decimal("0.08")
 
 
 @portfolio.command(help="View current balances for an account.")
@@ -622,3 +655,9 @@ def balance():
         ]
     )
     console.print(table)
+    if balances.cash_balance < 0:
+        interest = get_margin_rate(balances.cash_balance) / 360 * balances.cash_balance
+        print_warning(
+            f"Negative cash balance will result in an interest charge of "
+            f"$[bold]{abs(interest):.2f}[/bold]/day!"
+        )
