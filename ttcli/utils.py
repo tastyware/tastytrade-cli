@@ -21,6 +21,12 @@ from tastytrade.streamer import U
 from tastytrade.utils import TastytradeError, now_in_new_york
 from typer import Typer
 
+from calendar import monthrange
+import exchange_calendars as xcals
+from zoneinfo import ZoneInfo
+import pandas as pd
+
+
 from ttcli import CUSTOM_CONFIG_PATH, TOKEN_PATH, VERSION, logger
 
 ZERO = Decimal(0)
@@ -220,3 +226,164 @@ def get_confirmation(prompt: str, default: bool = True) -> bool:
             return True
         if answer[0] == "n":
             return False
+
+def is_third_friday(date, tz):
+    def get_third_friday_or_thursday(year, month, tz):
+        _, last = monthrange(year, month)
+        first = datetime(year, month, 1)
+        last = datetime(year, month, last)
+        result = xcals.get_calendar("XNYS", start=first, end=last)
+        result = result.sessions.to_pydatetime()
+
+        found = [None, None]
+        for i in result:
+            if i.weekday() == 4 and 15 <= i.day <= 21 and i.month == month:
+                # Third Friday
+                found[0] = i.replace(tzinfo=ZoneInfo(tz)) + timedelta(hours=16)
+            elif i.weekday() == 3 and 15 <= i.day <= 21 and i.month == month:
+                # Thursday alternative
+                found[1] = i.replace(tzinfo=ZoneInfo(tz)) + timedelta(hours=16)
+        return found[0] or found[1], result
+
+    # We try with current month
+    candidate, result = get_third_friday_or_thursday(date.year, date.month, tz)
+    if candidate and pd.Timestamp(date).date() > candidate.date():
+        # If current date is over, try next month
+        next_month = date.month + 1
+        next_year = date.year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+        candidate, result = get_third_friday_or_thursday(next_year, next_month, tz)    
+    return candidate, result
+
+
+def get_SOFR_ticker(): # To know th risk free yield
+    month_codes = {3: "H", 6: "M", 9: "U", 12: "Z"}
+
+    def third_wednesday(year, month):
+        count = 0
+        for day in range(1, 32):
+            try:
+                d = date(year, month, day)
+            except ValueError:
+                break
+            if d.weekday() == 2:  # Wednesday
+                count += 1
+                if count == 3:
+                    return d
+        return None
+
+    def sofr_expiration_date(year, month):
+        wednesday = third_wednesday(year, month)
+        return wednesday - timedelta(days=5)
+
+    def next_sofr_contract(today=None):
+        if today is None:
+            today = datetime.now(ZoneInfo("America/New_York")).date()
+        year = today.year
+        quarterly_months = [3, 6, 9, 12]
+
+        for i, m in enumerate(quarterly_months):
+            expiration = sofr_expiration_date(year, m)
+            if today < expiration:
+                contract_month = m
+                break
+            elif today == expiration:
+                contract_month = quarterly_months[i + 1] if i + 1 < len(quarterly_months) else 3
+                if contract_month == 3:
+                    year += 1
+                break
+        else:
+            contract_month = 3
+            year += 1
+
+        month_code = month_codes[contract_month]
+        year_code = str(year)[-1]
+        ticker = f"/SR3{month_code}{year_code}"
+        expiration_date = pd.Timestamp(sofr_expiration_date(year, contract_month)).tz_localize(ZoneInfo("America/New_York"))
+
+        return ticker, expiration_date
+
+    ticker, expiration = next_sofr_contract()
+    return ticker
+
+def next_open_day(date):
+    tz_europe = ZoneInfo("Europe/Madrid") # It's easier to calculate the next day using europe time, only have to add 2 or 1 hour
+    now_europe = datetime.now(tz_europe)
+    hour = now_europe.hour
+    days_to_add = 2 if 22 <= hour <= 23 else 1
+    next_day = date + timedelta(days=days_to_add)
+
+    _, last = monthrange(next_day.year, next_day.month)
+    first = datetime(next_day.year, next_day.month, 1)
+    last = datetime(next_day.year, next_day.month, last)
+    calendar = xcals.get_calendar("XNYS", start=first, end=last)
+    trading_days = calendar.sessions.to_pydatetime()
+    trading_dates = [d.date() for d in trading_days]
+
+    while next_day not in trading_dates:
+        next_day += timedelta(days=1)
+    return next_day
+
+def expir_to_datetime(expir: str):
+    tz = "America/New_York"
+    today = datetime.now(ZoneInfo(tz))
+    today_date = today.date()
+
+    expir = expir.lower().strip()
+
+    _, last = monthrange(today.year, today.month)
+    first = datetime(today.year, today.month, 1)
+    last = datetime(today.year, today.month, last)
+    calendar = xcals.get_calendar("XNYS", start=first, end=last)
+    trading_days = calendar.sessions.to_pydatetime()
+    trading_dates = [d.date() for d in trading_days]
+
+    if expir == "0dte":
+        # If market is open today, then today is the returned date
+        if today_date in trading_dates:
+            return today_date
+        else:
+            return next_open_day(today_date)
+
+    elif expir.endswith("dte"):
+        try:
+            dte = int(expir.replace("dte", ""))
+            future_date = today_date
+            for _ in range(dte):
+                future_date = next_open_day(future_date)
+            return future_date
+        except ValueError:
+            raise ValueError(f"Format for expiration not recognised: {expir}")
+
+    elif expir == "weekly":
+        # Buscar viernes de esta semana
+        this_friday = today_date + timedelta((4 - today_date.weekday()) % 7)
+
+        _, last = monthrange(this_friday.year, this_friday.month)
+        first = datetime(this_friday.year, this_friday.month, 1)
+        last = datetime(this_friday.year, this_friday.month, last)
+        calendar = xcals.get_calendar("XNYS", start=first, end=last)
+        trading_days = calendar.sessions.to_pydatetime()
+        trading_dates = [d.date() for d in trading_days]
+
+        if this_friday in trading_dates:
+            return this_friday
+        elif (this_friday - timedelta(days=1)) in trading_dates:
+            return this_friday - timedelta(days=1)
+        else:
+            raise ValueError("Friday and thursday is closed.")
+
+
+    elif expir == "opex":
+        date_, result = is_third_friday(today_date, tz)
+        return date_.date()
+
+    elif expir == "monthly":
+        return trading_dates[-1]
+
+    else:
+        raise ValueError(f"Expiration type unknown: {expir}")
+
+       
