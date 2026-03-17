@@ -6,7 +6,7 @@ from typing import Annotated
 from rich.console import Console
 from rich.table import Table
 from tastytrade import DXLinkStreamer
-from tastytrade.account import EmptyDict
+from tastytrade.account import CurrentPosition, EmptyDict
 from tastytrade.dxfeed import Greeks
 from tastytrade.instruments import (
     Cryptocurrency,
@@ -15,12 +15,8 @@ from tastytrade.instruments import (
     FutureOption,
     TickSize,
 )
-from tastytrade.instruments import (
-    Option as TastytradeOption,
-)
-from tastytrade.market_data import (
-    get_market_data_by_type,
-)
+from tastytrade.instruments import Option as TastytradeOption
+from tastytrade.market_data import get_market_data_by_type
 from tastytrade.metrics import MarketMetricInfo, get_market_metrics
 from tastytrade.order import (
     InstrumentType,
@@ -39,6 +35,7 @@ from ttcli.utils import (
     AsyncTyper,
     RenewableSession,
     conditional_color,
+    gather,
     get_confirmation,
     listen_events,
     print_error,
@@ -70,46 +67,52 @@ def get_indicators(today: date, metrics: MarketMetricInfo) -> str:
 async def positions(
     all: Annotated[bool, Option(help="Show positions for all accounts.")] = False,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     console = Console()
     table = Table(header_style="bold", title_style="bold", title="Positions")
     table.add_column("#", justify="left")
     today = today_in_new_york()
     if all:
         table.add_column("Account", justify="left")
-        positions = []
-        account_dict = {}
-        for account in sesh.accounts:
-            account_dict[account.account_number] = account.nickname
-            positions.extend(account.get_positions(sesh, include_marks=True))
+        positions: list[CurrentPosition] = []
+        account_dict = {a.account_number: a.nickname for a in sesh.accounts}
+        results = await gather(
+            *[a.get_positions(sesh, include_marks=True) for a in sesh.accounts]
+        )
+        for res in results:
+            positions.extend(res)
     else:
         account = sesh.get_account()
-        positions = account.get_positions(sesh, include_marks=True)
+        positions = await account.get_positions(sesh, include_marks=True)
     positions.sort(key=lambda pos: pos.symbol)
     pos_dict = {pos.symbol: pos for pos in positions}
     options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY_OPTION
     ]
-    options = TastytradeOption.get(sesh, options_symbols) if options_symbols else []
+    options = (
+        await TastytradeOption.get(sesh, options_symbols) if options_symbols else []
+    )
     options_dict = {o.symbol: o for o in options}
     future_options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.FUTURE_OPTION
     ]
     future_options = (
-        FutureOption.get(sesh, future_options_symbols) if future_options_symbols else []
+        await FutureOption.get(sesh, future_options_symbols)
+        if future_options_symbols
+        else []
     )
     future_options_dict = {fo.symbol: fo for fo in future_options}
     futures_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.FUTURE
     ] + [fo.underlying_symbol for fo in future_options]
-    futures = Future.get(sesh, futures_symbols) if futures_symbols else []
+    futures = await Future.get(sesh, futures_symbols) if futures_symbols else []
     futures_dict = {f.symbol: f for f in futures}
     crypto_symbols = [
         p.symbol
         for p in positions
         if p.instrument_type == InstrumentType.CRYPTOCURRENCY
     ]
-    cryptos = Cryptocurrency.get(sesh, crypto_symbols) if crypto_symbols else []
+    cryptos = await Cryptocurrency.get(sesh, crypto_symbols) if crypto_symbols else []
     crypto_dict = {c.symbol: c for c in cryptos}
     greeks_symbols = [o.streamer_symbol for o in options] + [
         fo.streamer_symbol for fo in future_options
@@ -119,7 +122,7 @@ async def positions(
         + [o.underlying_symbol for o in options]
         + ["SPY"]
     )
-    equities = Equity.get(sesh, equity_symbols)
+    equities = await Equity.get(sesh, equity_symbols)
     equity_dict = {e.symbol: e for e in equities}
     all_symbols = (
         list(
@@ -139,7 +142,7 @@ async def positions(
                 greeks_dict = await listen_events(greeks_symbols, Greeks, streamer)
     else:
         greeks_dict: dict[str, Greeks | None] = {}
-    data = get_market_data_by_type(
+    data = await get_market_data_by_type(
         sesh,
         cryptocurrencies=crypto_symbols or None,
         equities=equity_symbols,
@@ -153,7 +156,7 @@ async def positions(
     tt_symbols = set(pos.symbol for pos in positions)
     tt_symbols.update(set(o.underlying_symbol for o in options))
     tt_symbols.update(set(o.underlying_symbol for o in future_options))
-    metrics = get_market_metrics(sesh, list(tt_symbols))
+    metrics = await get_market_metrics(sesh, list(tt_symbols))
     metrics_dict = defaultdict(
         lambda: MarketMetricInfo(symbol="", market_cap=ZERO, updated_at=datetime.now())
     )
@@ -419,7 +422,7 @@ async def positions(
         price=total_price,
     )
     try:
-        data = account.place_order(sesh, order, dry_run=True)
+        data = await account.place_order(sesh, order, dry_run=True)
     except TastytradeError as e:
         print_error(str(e))
         return
@@ -448,11 +451,11 @@ async def positions(
         for warning in data.warnings:
             print_warning(warning.message)
     if get_confirmation("Send order? Y/n "):
-        account.place_order(sesh, order, dry_run=False)
+        await account.place_order(sesh, order, dry_run=False)
 
 
 @portfolio.command(help="View your previous positions.")
-def history(
+async def history(
     start_date: Annotated[
         datetime | None,
         Option("--start", help="The start date for the search date range."),
@@ -470,19 +473,18 @@ def history(
         bool, Option(help="Sort by ascending time instead of descending.")
     ] = False,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     acc = sesh.get_account()
     with yaspin(color="green", text="Fetching history..."):
-        history = acc.get_history(
+        history = await acc.get_history(
             sesh,
+            sort="Asc" if asc else "Desc",
             start_date=start_date.date() if start_date else None,
             end_date=end_date.date() if end_date else None,
             underlying_symbol=symbol if symbol and symbol[0] != "/" else None,
             futures_symbol=symbol if symbol and symbol[0] == "/" else None,
             instrument_type=type,
         )
-    if asc:
-        history.reverse()
     console = Console()
     table = Table(
         show_header=True,
@@ -537,10 +539,10 @@ def history(
 
 
 @portfolio.command(help="View margin usage by position for an account.")
-def margin():
-    sesh = RenewableSession()
+async def margin():
+    sesh = await RenewableSession()
     acc = sesh.get_account()
-    margin = acc.get_margin_requirements(sesh)
+    margin = await acc.get_margin_requirements(sesh)
     console = Console()
     table = Table(
         show_header=True,
@@ -593,7 +595,7 @@ def margin():
             f"{bp_percent}%",
         ]
     )
-    data = get_market_data_by_type(sesh, indices=["VIX"])[0]
+    data = (await get_market_data_by_type(sesh, indices=["VIX"]))[0]
     console.print(table)
     bp_variation = sesh.config.getint(
         "portfolio", "bp-target-percent-variation", fallback=10
@@ -628,10 +630,10 @@ def get_margin_rate(margin_usage: Decimal) -> Decimal:
 
 
 @portfolio.command(help="View current balances for an account.")
-def balance():
-    sesh = RenewableSession()
+async def balance():
+    sesh = await RenewableSession()
     acc = sesh.get_account()
-    balances = acc.get_balances(sesh)
+    balances = await acc.get_balances(sesh)
     console = Console()
     table = Table(
         show_header=True,

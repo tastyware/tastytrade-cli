@@ -43,6 +43,7 @@ from ttcli.utils import (
     print_error,
     print_warning,
     round_to_tick_size,
+    volfmt,
 )
 
 
@@ -167,17 +168,17 @@ async def call(
         print_error("Delta value is too high, -99 <= delta <= 99")
         return
 
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     if dte is None:
         dte = sesh.config.getint("option", "default-dte", fallback=None)
     symbol = symbol.upper()
     is_future = symbol[0] == "/"
     if is_future:  # futures options
-        chain = NestedFutureOptionChain.get(sesh, symbol)
+        chain = await NestedFutureOptionChain.get(sesh, symbol)
         subchain = choose_futures_expiration(chain, dte, weeklies)
         ticks = subchain.tick_sizes
     else:
-        chain = NestedOptionChain.get(sesh, symbol)[0]
+        chain = (await NestedOptionChain.get(sesh, symbol))[0]
         subchain = choose_expiration(chain, dte, weeklies)
         ticks = chain.tick_sizes
     fmt = lambda x: round_to_tick_size(x, ticks)
@@ -212,7 +213,7 @@ async def call(
             print_error(f"Unable to locate option at strike {strike + width}!")
             return
         dxfeeds = [strike_symbol, spread_strike.call]
-        data = get_market_data_by_type(
+        data = await get_market_data_by_type(
             sesh,
             options=dxfeeds if not is_future else None,
             future_options=dxfeeds if is_future else None,
@@ -221,10 +222,12 @@ async def call(
         bid = data_dict[strike_symbol].bid - data_dict[spread_strike.call].ask  # type: ignore
         ask = data_dict[strike_symbol].ask - data_dict[spread_strike.call].bid  # type: ignore
     else:
-        data = get_market_data_by_type(
-            sesh,
-            future_options=[strike_symbol] if is_future else None,
-            options=[strike_symbol] if not is_future else None,
+        data = (
+            await get_market_data_by_type(
+                sesh,
+                future_options=[strike_symbol] if is_future else None,
+                options=[strike_symbol] if not is_future else None,
+            )
         )[0]
         bid = data.bid or 0
         ask = data.ask or 0
@@ -256,12 +259,12 @@ async def call(
     short_symbol = next(s.call for s in subchain.strikes if s.strike_price == strike)
     if width:
         if is_future:  # futures options
-            res = FutureOption.get(
+            res = await FutureOption.get(
                 sesh,
                 [short_symbol, spread_strike.call],  # type: ignore
             )
         else:
-            res = TastytradeOption.get(sesh, [short_symbol, spread_strike.call])  # type: ignore
+            res = await TastytradeOption.get(sesh, [short_symbol, spread_strike.call])  # type: ignore
         res.sort(key=lambda x: x.strike_price)
         legs = [
             res[0].build_leg(
@@ -275,9 +278,9 @@ async def call(
         ]
     else:
         if is_future:
-            call = FutureOption.get(sesh, short_symbol)
+            call = await FutureOption.get(sesh, short_symbol)
         else:
-            call = TastytradeOption.get(sesh, short_symbol)
+            call = await TastytradeOption.get(sesh, short_symbol)
         legs = [
             call.build_leg(
                 Decimal(abs(quantity)),
@@ -293,12 +296,12 @@ async def call(
     )
     acc = sesh.get_account()
     try:
-        data = acc.place_order(sesh, order, dry_run=True)
+        data = await acc.place_order(sesh, order, dry_run=True)
     except TastytradeError as e:
         print_error(str(e))
         return
 
-    nl = acc.get_balances(sesh).net_liquidating_value
+    nl = (await acc.get_balances(sesh)).net_liquidating_value
     bp = data.buying_power_effect.change_in_buying_power
     percent = abs(bp) / nl * Decimal(100)
     fees = data.fee_calculation.total_fees if data.fee_calculation else ZERO
@@ -354,7 +357,7 @@ async def call(
             f"Buying power usage is above per-position target of {warn_percent}%!"
         )
     if get_confirmation("Send order? Y/n "):
-        acc.place_order(sesh, order, dry_run=False)
+        await acc.place_order(sesh, order, dry_run=False)
 
 
 @option.command(
@@ -403,17 +406,17 @@ async def put(
         print_error("Delta value is too high, -99 <= delta <= 99")
         return
 
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     if dte is None:
         dte = sesh.config.getint("option", "default-dte", fallback=None)
     symbol = symbol.upper()
     is_future = symbol[0] == "/"
     if is_future:  # futures options
-        chain = NestedFutureOptionChain.get(sesh, symbol)
+        chain = await NestedFutureOptionChain.get(sesh, symbol)
         subchain = choose_futures_expiration(chain, dte, weeklies)
         ticks = subchain.tick_sizes
     else:
-        chain = NestedOptionChain.get(sesh, symbol)[0]
+        chain = (await NestedOptionChain.get(sesh, symbol))[0]
         subchain = choose_expiration(chain, dte, weeklies)
         ticks = chain.tick_sizes
     fmt = lambda x: round_to_tick_size(x, ticks)
@@ -448,7 +451,7 @@ async def put(
             print_error(f"Unable to locate option at strike {strike - width}!")
             return
         dxfeeds = [strike_symbol, spread_strike.put]
-        data = get_market_data_by_type(
+        data = await get_market_data_by_type(
             sesh,
             options=dxfeeds if not is_future else None,
             future_options=dxfeeds if is_future else None,
@@ -457,10 +460,12 @@ async def put(
         bid = data_dict[strike_symbol].bid - data_dict[spread_strike.call].ask  # type: ignore
         ask = data_dict[strike_symbol].ask - data_dict[spread_strike.call].bid  # type: ignore
     else:
-        data = get_market_data_by_type(
-            sesh,
-            future_options=[strike_symbol] if is_future else None,
-            options=[strike_symbol] if not is_future else None,
+        data = (
+            await get_market_data_by_type(
+                sesh,
+                future_options=[strike_symbol] if is_future else None,
+                options=[strike_symbol] if not is_future else None,
+            )
         )[0]
         bid = data.bid or 0
         ask = data.ask or 0
@@ -492,12 +497,12 @@ async def put(
     short_symbol = next(s.put for s in subchain.strikes if s.strike_price == strike)
     if width:
         if is_future:  # futures options
-            res = FutureOption.get(
+            res = await FutureOption.get(
                 sesh,
                 [short_symbol, spread_strike.put],  # type: ignore
             )
         else:
-            res = TastytradeOption.get(sesh, [short_symbol, spread_strike.put])  # type: ignore
+            res = await TastytradeOption.get(sesh, [short_symbol, spread_strike.put])  # type: ignore
         res.sort(key=lambda x: x.strike_price, reverse=True)
         legs = [
             res[0].build_leg(
@@ -511,9 +516,9 @@ async def put(
         ]
     else:
         if is_future:  # futures options
-            put = FutureOption.get(sesh, short_symbol)
+            put = await FutureOption.get(sesh, short_symbol)
         else:
-            put = TastytradeOption.get(sesh, short_symbol)
+            put = await TastytradeOption.get(sesh, short_symbol)
         legs = [
             put.build_leg(
                 Decimal(abs(quantity)),
@@ -530,12 +535,12 @@ async def put(
     acc = sesh.get_account()
 
     try:
-        data = acc.place_order(sesh, order, dry_run=True)
+        data = await acc.place_order(sesh, order, dry_run=True)
     except TastytradeError as e:
         print_error(str(e))
         return
 
-    nl = acc.get_balances(sesh).net_liquidating_value
+    nl = (await acc.get_balances(sesh)).net_liquidating_value
     bp = data.buying_power_effect.change_in_buying_power
     percent = abs(bp) / nl * Decimal(100)
     fees = data.fee_calculation.total_fees if data.fee_calculation else ZERO
@@ -591,7 +596,7 @@ async def put(
             f"Buying power usage is above per-position target of {warn_percent}%!"
         )
     if get_confirmation("Send order? Y/n "):
-        acc.place_order(sesh, order, dry_run=False)
+        await acc.place_order(sesh, order, dry_run=False)
 
 
 @option.command(
@@ -651,17 +656,17 @@ async def strangle(
         print_error("Delta value is too high, -99 <= delta <= 99")
         return
 
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     if dte is None:
         dte = sesh.config.getint("option", "default-dte", fallback=None)
     symbol = symbol.upper()
     is_future = symbol[0] == "/"
     if is_future:  # futures options
-        chain = NestedFutureOptionChain.get(sesh, symbol)
+        chain = await NestedFutureOptionChain.get(sesh, symbol)
         subchain = choose_futures_expiration(chain, dte, weeklies)
         ticks = subchain.tick_sizes
     else:
-        chain = NestedOptionChain.get(sesh, symbol)[0]
+        chain = (await NestedOptionChain.get(sesh, symbol))[0]
         subchain = choose_expiration(chain, dte, weeklies)
         ticks = chain.tick_sizes
     fmt = lambda x: round_to_tick_size(x, ticks)
@@ -733,7 +738,7 @@ async def strangle(
             put_spread_strike.put,
             call_spread_strike.call,
         ]
-        data = get_market_data_by_type(
+        data = await get_market_data_by_type(
             sesh,
             options=dxfeeds if not is_future else None,
             future_options=dxfeeds if is_future else None,
@@ -753,7 +758,7 @@ async def strangle(
         )
     else:
         dxfeeds = [put_strike.put, call_strike.call]
-        data = get_market_data_by_type(
+        data = await get_market_data_by_type(
             sesh,
             options=dxfeeds if not is_future else None,
             future_options=dxfeeds if is_future else None,
@@ -790,9 +795,9 @@ async def strangle(
     if width:
         tt_symbols += [put_spread_strike.put, call_spread_strike.call]  # type: ignore
     if is_future:  # futures options
-        options = FutureOption.get(sesh, tt_symbols)
+        options = await FutureOption.get(sesh, tt_symbols)
     else:
-        options = TastytradeOption.get(sesh, tt_symbols)
+        options = await TastytradeOption.get(sesh, tt_symbols)
     options.sort(key=lambda o: o.strike_price)
     q = Decimal(quantity)
     if width:
@@ -835,12 +840,12 @@ async def strangle(
     acc = sesh.get_account()
 
     try:
-        data = acc.place_order(sesh, order, dry_run=True)
+        data = await acc.place_order(sesh, order, dry_run=True)
     except TastytradeError as e:
         print_error(str(e))
         return
 
-    nl = acc.get_balances(sesh).net_liquidating_value
+    nl = (await acc.get_balances(sesh)).net_liquidating_value
     bp = data.buying_power_effect.change_in_buying_power
     percent = abs(bp) / nl * Decimal(100)
     fees = data.fee_calculation.total_fees if data.fee_calculation else ZERO
@@ -913,7 +918,7 @@ async def strangle(
             f"Buying power usage is above per-position target of {warn_percent}%!"
         )
     if get_confirmation("Send order? Y/n "):
-        acc.place_order(sesh, order, dry_run=False)
+        await acc.place_order(sesh, order, dry_run=False)
 
 
 @option.command(help="Fetch and display an options chain.", no_args_is_help=True)
@@ -929,7 +934,7 @@ async def chain(
         int | None, Option("--dte", help="Days to expiration for the chain.")
     ] = None,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     symbol = symbol.upper()
 
     if dte is None:
@@ -938,11 +943,11 @@ async def chain(
         strikes = sesh.config.getint("option", "strike-count", fallback=16)
     is_future = symbol[0] == "/"
     if is_future:  # futures options
-        chain = NestedFutureOptionChain.get(sesh, symbol)
+        chain = await NestedFutureOptionChain.get(sesh, symbol)
         subchain = choose_futures_expiration(chain, dte, weeklies)
         ticks = subchain.tick_sizes
     else:
-        chain = NestedOptionChain.get(sesh, symbol)[0]
+        chain = (await NestedOptionChain.get(sesh, symbol))[0]
         subchain = choose_expiration(chain, dte, weeklies)
         ticks = chain.tick_sizes
     fmt = lambda x: round_to_tick_size(x, ticks)
@@ -984,12 +989,14 @@ async def chain(
         table.add_column("Volume", justify="right")
 
     if is_future:  # futures options
-        future = Future.get(sesh, subchain.underlying_symbol)  # type: ignore
-        mark = get_market_data_by_type(sesh, futures=[future.symbol])[0].last or ZERO
+        future = await Future.get(sesh, subchain.underlying_symbol)  # type: ignore
+        mark = (await get_market_data_by_type(sesh, futures=[future.symbol]))[
+            0
+        ].last or ZERO
     else:
-        equity = Equity.get(sesh, symbol)
+        equity = await Equity.get(sesh, symbol)
         mark = (
-            get_market_data_by_type(
+            await get_market_data_by_type(
                 sesh,
                 equities=[equity.symbol]
                 if equity.instrument_type == InstrumentType.EQUITY
@@ -997,9 +1004,8 @@ async def chain(
                 indices=[equity.symbol]
                 if equity.instrument_type == InstrumentType.INDEX
                 else None,
-            )[0].last
-            or ZERO
-        )
+            )
+        )[0].last or ZERO
 
     subchain.strikes.sort(key=lambda s: s.strike_price)
     mid_index = 0
@@ -1067,8 +1073,10 @@ async def chain(
         if show_volume:
             call_trade = trade_dict[strike.call_streamer_symbol]  # type: ignore
             put_trade = trade_dict[strike.put_streamer_symbol]  # type: ignore
-            prepend.append(f"{call_trade.day_volume or 0}" if call_trade else "")
-            row.append(f"{put_trade.day_volume or 0}" if put_trade else "")
+            prepend.append(
+                f"{volfmt(call_trade.day_volume or 0)}" if call_trade else ""
+            )
+            row.append(f"{volfmt(put_trade.day_volume or 0)}" if put_trade else "")
 
         prepend.reverse()
         table.add_row(*(prepend + row), end_section=(i == mid_index - 1))

@@ -12,9 +12,10 @@ from tastytrade.order import (
     OrderType,
 )
 from tastytrade.utils import TastytradeError
-from typer import Argument, Option, Typer
+from typer import Argument, Option
 
 from ttcli.utils import (
+    AsyncTyper,
     RenewableSession,
     conditional_color,
     decimalify,
@@ -25,7 +26,7 @@ from ttcli.utils import (
     round_to_width,
 )
 
-trade = Typer(
+trade = AsyncTyper(
     help="Buy or sell stocks/ETFs, crypto, and futures.", no_args_is_help=True
 )
 
@@ -35,19 +36,19 @@ trade = Typer(
     context_settings={"ignore_unknown_options": True},
     no_args_is_help=True,
 )
-def stock(
+async def stock(
     symbol: str,
     quantity: int,
     gtc: Annotated[
         bool, Option("--gtc", help="Place a GTC order instead of a day order.")
     ] = False,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     symbol = symbol.upper()
-    equity = Equity.get(sesh, symbol)
+    equity = await Equity.get(sesh, symbol)
     fmt = lambda x: round_to_tick_size(x, equity.tick_sizes or [])
 
-    data = get_market_data_by_type(sesh, equities=[symbol])[0]
+    data = (await get_market_data_by_type(sesh, equities=[symbol]))[0]
     bid = data.bid or 0
     ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))
@@ -81,12 +82,12 @@ def stock(
     )
     acc = sesh.get_account()
     try:
-        data = acc.place_order(sesh, order, dry_run=True)
+        data = await acc.place_order(sesh, order, dry_run=True)
     except TastytradeError as e:
         print_error(str(e))
         return
 
-    nl = acc.get_balances(sesh).net_liquidating_value
+    nl = (await acc.get_balances(sesh)).net_liquidating_value
     bp = data.buying_power_effect.change_in_buying_power
     percent = abs(bp) / nl * Decimal(100)
     fees = data.fee_calculation.total_fees  # type: ignore
@@ -124,22 +125,24 @@ def stock(
             f"Buying power usage is above per-position target of {warn_percent}%!"
         )
     if get_confirmation("Send order? Y/n "):
-        acc.place_order(sesh, order, dry_run=False)
+        await acc.place_order(sesh, order, dry_run=False)
 
 
 @trade.command(help="Buy cryptocurrency.", no_args_is_help=True)
-def crypto(symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)]):
-    sesh = RenewableSession()
+async def crypto(
+    symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)]
+):
+    sesh = await RenewableSession()
     symbol = symbol.upper()
     if "USD" not in symbol:
         symbol += "/USD"
     elif "/" not in symbol:
         symbol = symbol.split("USD")[0] + "/USD"
     symbol = symbol.replace("/", "%2F")
-    crypto = Cryptocurrency.get(sesh, symbol)
+    crypto = await Cryptocurrency.get(sesh, symbol)
     fmt = lambda x: round_to_width(x, crypto.tick_size)
 
-    data = get_market_data_by_type(sesh, cryptocurrencies=[crypto.symbol])[0]
+    data = (await get_market_data_by_type(sesh, cryptocurrencies=[crypto.symbol]))[0]
     bid = data.bid or 0
     ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))
@@ -173,12 +176,12 @@ def crypto(symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)
     )
     acc = sesh.get_account()
     try:
-        data = acc.place_order(sesh, order, dry_run=True)
+        data = await acc.place_order(sesh, order, dry_run=True)
     except TastytradeError as e:
         print_error(str(e))
         return
 
-    nl = acc.get_balances(sesh).net_liquidating_value
+    nl = (await acc.get_balances(sesh)).net_liquidating_value
     bp = data.buying_power_effect.change_in_buying_power
     percent = abs(bp) / nl * Decimal(100)
     fees = data.fee_calculation.total_fees  # type: ignore
@@ -216,7 +219,7 @@ def crypto(symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)
             f"Buying power usage is above per-position target of {warn_percent}%!"
         )
     if get_confirmation("Send order? Y/n "):
-        acc.place_order(sesh, order, dry_run=False)
+        await acc.place_order(sesh, order, dry_run=False)
 
 
 @trade.command(
@@ -224,26 +227,26 @@ def crypto(symbol: str, quantity: Annotated[Decimal, Argument(parser=decimalify)
     context_settings={"ignore_unknown_options": True},
     no_args_is_help=True,
 )
-def future(
+async def future(
     symbol: str,
     quantity: int,
     gtc: Annotated[
         bool, Option("--gtc", help="Place a GTC order instead of a day order.")
     ] = False,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     symbol = symbol.upper()
     if not any(c.isdigit() for c in symbol):
-        product = FutureProduct.get(sesh, symbol)
+        product = await FutureProduct.get(sesh, symbol)
         fmt = ",".join([f" {m.name} ({m.value})" for m in product.active_months])
         print_error(
             f"Please enter the full futures symbol!\nCurrent active months:{fmt}"
         )
         return
-    future = Future.get(sesh, symbol)
+    future = await Future.get(sesh, symbol)
     fmt = lambda x: round_to_width(x, future.tick_size)
 
-    data = get_market_data_by_type(sesh, futures=[future.symbol])[0]
+    data = (await get_market_data_by_type(sesh, futures=[future.symbol]))[0]
     bid = data.bid or 0
     ask = data.ask or 0
     mid = fmt((bid + ask) / Decimal(2))
@@ -277,12 +280,12 @@ def future(
     )
     acc = sesh.get_account()
     try:
-        data = acc.place_order(sesh, order, dry_run=True)
+        data = await acc.place_order(sesh, order, dry_run=True)
     except TastytradeError as e:
         print_error(str(e))
         return
 
-    nl = acc.get_balances(sesh).net_liquidating_value
+    nl = (await acc.get_balances(sesh)).net_liquidating_value
     bp = data.buying_power_effect.change_in_buying_power
     percent = abs(bp) / nl * Decimal(100)
     fees = data.fee_calculation.total_fees  # type: ignore
@@ -324,4 +327,4 @@ def future(
             f"Buying power usage is above per-position target of {warn_percent}%!"
         )
     if get_confirmation("Send order? Y/n "):
-        acc.place_order(sesh, order, dry_run=False)
+        await acc.place_order(sesh, order, dry_run=False)

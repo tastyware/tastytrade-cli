@@ -7,37 +7,40 @@ from typing import Annotated
 from rich.console import Console
 from rich.table import Table
 from tastytrade.market_data import get_market_data_by_type
-from tastytrade.order import InstrumentType, NewOrder, OrderStatus
+from tastytrade.order import InstrumentType, NewOrder, OrderStatus, PlacedOrder
 from tastytrade.utils import TastytradeError
-from typer import Option, Typer
+from typer import Option
 from yaspin import yaspin
 
 from ttcli.utils import (
     ZERO,
+    AsyncTyper,
     RenewableSession,
     conditional_color,
     conditional_quantity,
+    gather,
     get_confirmation,
     print_error,
 )
 
-order = Typer(help="List, adjust, or cancel orders.", no_args_is_help=True)
+order = AsyncTyper(help="List, adjust, or cancel orders.", no_args_is_help=True)
 
 
 @order.command(help="List, adjust, or cancel live orders.")
-def live(
+async def live(
     all: Annotated[
         bool, Option("--all", help="Show orders for all accounts, not just one.")
     ] = False,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     if all:
-        orders = []
-        for acc in sesh.accounts:
-            orders.extend(acc.get_live_orders(sesh))
+        orders: list[PlacedOrder] = []
+        results = await gather(*[a.get_live_orders(sesh) for a in sesh.accounts])
+        for res in results:
+            orders.extend(res)
     else:
         acc = sesh.get_account()
-        orders = acc.get_live_orders(sesh)
+        orders = await acc.get_live_orders(sesh)
     orders = [
         o
         for o in orders
@@ -49,7 +52,7 @@ def live(
     for o in orders:
         for leg in o.legs:
             instrument_dict[leg.instrument_type].add(leg.symbol)
-    data = get_market_data_by_type(
+    data = await get_market_data_by_type(
         sesh,
         cryptocurrencies=list(instrument_dict[InstrumentType.CRYPTOCURRENCY]) or None,
         equities=list(instrument_dict[InstrumentType.EQUITY]) or None,
@@ -96,7 +99,7 @@ def live(
             order.time_in_force.value,
             conditional_color(order.price) if order.price else "--",
             conditional_color(total_price),
-            conditional_quantity(order.legs[0].quantity or ZERO, order.legs[0].action),
+            conditional_quantity(order.legs[0].quantity or 0, order.legs[0].action),
             order.legs[0].symbol,
         ]
         if all:
@@ -135,7 +138,7 @@ def live(
     price = input("Enter a new price for the order, or nothing to cancel it: $")
     if not price:  # cancel the order
         try:
-            acc.delete_order(sesh, order.id)
+            await acc.delete_order(sesh, order.id)
             print(f"Order {order.id} cancelled successfully!")
         except TastytradeError as e:
             print_error(str(e))
@@ -151,13 +154,13 @@ def live(
         price=sign * abs(Decimal(price)),
     )
     try:
-        acc.replace_order(sesh, order.id, new_order)
+        await acc.replace_order(sesh, order.id, new_order)
     except TastytradeError as e:
         print_error(str(e))
 
 
 @order.command(help="Show order history.")
-def history(
+async def history(
     start_date: Annotated[
         datetime | None,
         Option("--start", help="The start date for the search date range."),
@@ -178,10 +181,10 @@ def history(
         list[OrderStatus] | None, Option("--status", help="Filter by order status.")
     ] = None,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     acc = sesh.get_account()
     with yaspin(color="green", text="Fetching history..."):
-        history = acc.get_order_history(
+        history = await acc.get_order_history(
             sesh,
             start_date=start_date.date() if start_date else None,
             end_date=end_date.date() if end_date else None,

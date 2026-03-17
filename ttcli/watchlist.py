@@ -16,7 +16,7 @@ from typer import Option
 from yaspin import yaspin
 
 from ttcli.portfolio import get_indicators
-from ttcli.utils import ZERO, AsyncTyper, RenewableSession, conditional_color
+from ttcli.utils import ZERO, AsyncTyper, RenewableSession, conditional_color, volfmt
 
 watchlist = AsyncTyper(
     help="Show prices and metrics for symbols in a watchlist.", no_args_is_help=True
@@ -40,9 +40,9 @@ def batched(iterable: Iterable[Any], n: int):
 
 
 @watchlist.command(help="Show prices and metrics for symbols in a public watchlist.")
-def public():
-    sesh = RenewableSession()
-    watchlists = PublicWatchlist.get(sesh)
+async def public():
+    sesh = await RenewableSession()
+    watchlists = await PublicWatchlist.get(sesh)
     watchlists.sort(key=lambda w: w.name)
     # have user choose a watchlist
     chosen = watchlists[0]
@@ -90,7 +90,7 @@ def public():
         if s["instrument-type"] == InstrumentType.FUTURE
     }
     products = [
-        fp for fp in FutureProduct.get(sesh) if fp.root_symbol in future_symbols
+        fp for fp in await FutureProduct.get(sesh) if fp.root_symbol in future_symbols
     ]
     futures = [
         p.root_symbol + infer_futures_postfix(p.active_months[0]) for p in products
@@ -113,14 +113,14 @@ def public():
     with yaspin(color="green", text="Fetching metrics..."):
         data_dict: dict[str, MarketData] = {}
         for batch in batched(all_symbols, 100):
-            data = get_market_data_by_type(
+            data = await get_market_data_by_type(
                 sesh,
                 cryptocurrencies=[s for t, s in batch if t == "crypto"],
                 equities=[s for t, s in batch if t == "equity"],
                 futures=[s for t, s in batch if t == "future"],
             )
             data_dict.update({d.symbol: d for d in data})
-        metrics = get_market_metrics(sesh, list(data_dict.keys()))
+        metrics = await get_market_metrics(sesh, list(data_dict.keys()))
         metrics_dict = defaultdict(
             lambda: MarketMetricInfo(
                 symbol="", market_cap=ZERO, updated_at=datetime.now()
@@ -139,7 +139,7 @@ def public():
             str(round(100 * Decimal(metric.implied_volatility_index_rank)))
             if metric.implied_volatility_index_rank
             else "",
-            str(round(item.volume or 0)),
+            volfmt(round(item.volume or 0)),
         ]
         if table_show_beta:
             row.append(f"{metric.beta:.2f}" if metric.beta else "")
@@ -156,9 +156,9 @@ def public():
 
 
 @watchlist.command(help="Show prices and metrics for symbols in a private watchlist.")
-def private():
-    sesh = RenewableSession()
-    watchlists = PrivateWatchlist.get(sesh)
+async def private():
+    sesh = await RenewableSession()
+    watchlists = await PrivateWatchlist.get(sesh)
     watchlists.sort(key=lambda w: w.name)
     # have user choose a watchlist
     chosen = watchlists[0]
@@ -207,7 +207,7 @@ def private():
         if s["instrument-type"] == InstrumentType.FUTURE
     }
     products = [
-        fp for fp in FutureProduct.get(sesh) if fp.root_symbol in future_symbols
+        fp for fp in await FutureProduct.get(sesh) if fp.root_symbol in future_symbols
     ]
     futures = [
         p.root_symbol + infer_futures_postfix(p.active_months[0]) for p in products
@@ -236,7 +236,7 @@ def private():
     with yaspin(color="green", text="Fetching metrics..."):
         data_dict: dict[str, MarketData] = {}
         for batch in batched(all_symbols, 100):
-            data = get_market_data_by_type(
+            data = await get_market_data_by_type(
                 sesh,
                 cryptocurrencies=[s for t, s in batch if t == "crypto"],
                 equities=[s for t, s in batch if t == "equity"],
@@ -244,7 +244,7 @@ def private():
                 indices=[s for t, s in batch if t == "index"],
             )
             data_dict.update({d.symbol: d for d in data})
-        metrics = get_market_metrics(sesh, list(data_dict.keys()))
+        metrics = await get_market_metrics(sesh, list(data_dict.keys()))
         metrics_dict = defaultdict(
             lambda: MarketMetricInfo(
                 symbol="", market_cap=ZERO, updated_at=datetime.now()
@@ -256,14 +256,14 @@ def private():
         metric = metrics_dict[key]
         row = [
             key,
-            f"${item.last:.2f}",
+            f"${item.last or 0:.2f}",
             conditional_color(item.last - item.prev_close)
             if item.last and item.prev_close
             else "ERROR",
             str(round(100 * Decimal(metric.implied_volatility_index_rank)))
             if metric.implied_volatility_index_rank
             else "",
-            str(round(item.volume or 0)),
+            volfmt(round(item.volume or 0)),
         ]
         if table_show_beta:
             row.append(f"{metric.beta:.2f}" if metric.beta else "")
@@ -288,10 +288,10 @@ async def add(
         Option("--type", "-t", help="Type of instrument, defaults to 'Equity'"),
     ] = InstrumentType.EQUITY,
 ):
-    sesh = RenewableSession()
-    wl = PrivateWatchlist.get(sesh, name)
+    sesh = await RenewableSession()
+    wl = await PrivateWatchlist.get(sesh, name)
     wl.add_symbol(symbol, type)
-    wl.update(sesh)
+    await wl.update(sesh)
 
 
 @watchlist.command(
@@ -305,21 +305,21 @@ async def remove(
         Option("--type", "-t", help="Type of instrument, defaults to 'Equity'"),
     ] = InstrumentType.EQUITY,
 ):
-    sesh = RenewableSession()
-    wl = PrivateWatchlist.get(sesh, name)
+    sesh = await RenewableSession()
+    wl = await PrivateWatchlist.get(sesh, name)
     wl.remove_symbol(symbol, type)
-    wl.update(sesh)
+    await wl.update(sesh)
 
 
 @watchlist.command(help="Create a new private watchlist.", no_args_is_help=True)
 async def create(name: str):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     wl = PrivateWatchlist(name=name)
     wl.add_symbol("VIX", InstrumentType.INDEX)
-    wl.upload(sesh)
+    await wl.upload(sesh)
 
 
 @watchlist.command(help="Delete a private watchlist.", no_args_is_help=True)
 async def delete(name: str):
-    sesh = RenewableSession()
-    PrivateWatchlist.remove(sesh, name)
+    sesh = await RenewableSession()
+    await PrivateWatchlist.remove(sesh, name)

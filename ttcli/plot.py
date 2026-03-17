@@ -104,7 +104,7 @@ async def stock(
         CandleType, Option("--width", "-w", help="Interval of time for each candle.")
     ] = CandleType.HALF_HOUR,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     candles: list[str] = []
     start_time = get_start_time(width)
     ts = round(start_time.timestamp() * 1000)
@@ -132,13 +132,13 @@ async def crypto(
         CandleType, Option("--width", "-w", help="Interval of time for each candle.")
     ] = CandleType.HALF_HOUR,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     symbol = symbol.upper()
     if "USD" not in symbol:
         symbol += "/USD"
     elif "/" not in symbol:
         symbol = symbol.split("USD")[0] + "/USD"
-    crypto = Cryptocurrency.get(sesh, symbol)
+    crypto = await Cryptocurrency.get(sesh, symbol)
     candles: list[str] = []
     start_time = get_start_time(width)
     ts = round(start_time.timestamp() * 1000)
@@ -170,18 +170,18 @@ async def future(
         CandleType, Option("--width", "-w", help="Interval of time for each candle.")
     ] = CandleType.HALF_HOUR,
 ):
-    sesh = RenewableSession()
+    sesh = await RenewableSession()
     symbol = symbol.upper()
     if symbol[0] != "/":
         symbol = "/" + symbol
     if not any(c.isdigit() for c in symbol):
-        product = FutureProduct.get(sesh, symbol)
+        product = await FutureProduct.get(sesh, symbol)
         _fmt = ",".join([f" {m.name} ({m.value})" for m in product.active_months])
         print_error(
             f"Please enter the full futures symbol!\nCurrent active months:{_fmt}"
         )
         return
-    future = Future.get(sesh, symbol)
+    future = await Future.get(sesh, symbol)
     candles: list[str] = []
     start_time = get_start_time(width)
     ts = round(start_time.timestamp() * 1000)
