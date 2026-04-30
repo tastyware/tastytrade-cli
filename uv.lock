@@ -114,7 +114,7 @@ wheels = [
 
 [[package]]
 name = "httpx-ws"
-version = "0.8.2"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -122,9 +122,9 @@ dependencies = [
     { name = "httpx" },
     { name = "wsproto" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4a/32/6f7198f55d94063ea84487a31cdd3e149d2702dc0804fc5de06ed12ef2c2/httpx_ws-0.8.2.tar.gz", hash = "sha256:ba0d4aa76e1c8a27bd5e88984ecdcdc28f7bf30b40cb0989a4c1438d07fa52c7", size = 105734, upload-time = "2025-11-07T12:57:36.566Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cd/cd/ca91a07ae446451f7476bf3fcc909e98cb942ff032ebfda0e3fe449aca7b/httpx_ws-0.9.0.tar.gz", hash = "sha256:797373326f70eec1ae96f6e43ae9f12002fd7d73aee139a4985eaab964338a08", size = 107105, upload-time = "2026-03-28T14:11:10.781Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/29/cd/2008972ddc4c2139b9813d8a097e53dcc74b2a16a85b4069294457954232/httpx_ws-0.8.2-py3-none-any.whl", hash = "sha256:f8898ddb84cbf98c562e8e796675bc68c215fa1d453d54a7fcd935aca8198cc8", size = 15404, upload-time = "2025-11-07T12:57:35.176Z" },
+    { url = "https://files.pythonhosted.org/packages/98/f8/a6bc80313a9e93c888fa10534dfce2ad76ff86911b6f485777ce6de6a073/httpx_ws-0.9.0-py3-none-any.whl", hash = "sha256:71640d2fb1bf9a225775015b33cd755cfd4c5f7e21c885192fe3adc4c387b248", size = 15759, upload-time = "2026-03-28T14:11:11.887Z" },
 ]
 
 [[package]]
@@ -510,7 +510,7 @@ wheels = [
 
 [[package]]
 name = "tastytrade"
-version = "12.2.0"
+version = "12.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -519,9 +519,9 @@ dependencies = [
     { name = "pandas-market-calendars" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/21/e2/cab14e3aa6c89cc82f2667c5d3c7b492a8be78020c1b2dbf568f505ad5a9/tastytrade-12.2.0.tar.gz", hash = "sha256:71eddf580ffd05f44d665c47181da740cf04b8183cf4c4e01aa4f7502c9423f6", size = 163577, upload-time = "2026-03-16T22:59:04.853Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/28/7925dc302b21b618cf9858be4e0174a836ea1f3f9fdffff7a776be2352be/tastytrade-12.4.0.tar.gz", hash = "sha256:d06e14c126ac148ce6d5079925c688c00f96d50ddda65e3529e261e36915a8bf", size = 152941, upload-time = "2026-04-30T16:49:05.931Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/22/e1c5d204c40e18262fefeb7c8475aaa5e58204d7d1d72add122be115171a/tastytrade-12.2.0-py3-none-any.whl", hash = "sha256:a0bcc2105203541e200b3cbe6d9ec9255b3dcd914146286a3ea486339eccd908", size = 50122, upload-time = "2026-03-16T22:59:03.257Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/aa/d7f7f247158451b2684bf8dc234ce2469903d03b4b1a5bbc3479cd703630/tastytrade-12.4.0-py3-none-any.whl", hash = "sha256:d802e9e1bd6a1b028486c1593d6b537abb121c0ea2452957ccdb9f484b822204", size = 51866, upload-time = "2026-04-30T16:49:04.197Z" },
 ]
 
 [[package]]
@@ -547,7 +547,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.6.3" },
     { name = "py-gnuplot", specifier = ">=1.3" },
     { name = "rich", specifier = ">=13.8.1" },
-    { name = "tastytrade", specifier = ">=12.2.0" },
+    { name = "tastytrade", specifier = ">=12.4.0" },
     { name = "typer", specifier = ">=0.15.3" },
     { name = "yaspin", specifier = ">=3.1.0" },
 ]

@@ -37,6 +37,7 @@ from ttcli.utils import (
     RenewableSession,
     conditional_color,
     decimalify,
+    gather,
     get_confirmation,
     is_monthly,
     listen_events,
@@ -257,14 +258,13 @@ async def call(
     price = mid if not price else Decimal(price)
 
     short_symbol = next(s.call for s in subchain.strikes if s.strike_price == strike)
+    cls = FutureOption if is_future else TastytradeOption
     if width:
-        if is_future:  # futures options
-            res = await FutureOption.get(
-                sesh,
-                [short_symbol, spread_strike.call],  # type: ignore
+        res = list(
+            await gather(
+                *[cls.get(sesh, s) for s in [short_symbol, spread_strike.call]]  # type: ignore
             )
-        else:
-            res = await TastytradeOption.get(sesh, [short_symbol, spread_strike.call])  # type: ignore
+        )
         res.sort(key=lambda x: x.strike_price)
         legs = [
             res[0].build_leg(
@@ -277,10 +277,7 @@ async def call(
             ),
         ]
     else:
-        if is_future:
-            call = await FutureOption.get(sesh, short_symbol)
-        else:
-            call = await TastytradeOption.get(sesh, short_symbol)
+        call = await cls.get(sesh, short_symbol)
         legs = [
             call.build_leg(
                 Decimal(abs(quantity)),
@@ -495,14 +492,11 @@ async def put(
     price = mid if not price else Decimal(price)
 
     short_symbol = next(s.put for s in subchain.strikes if s.strike_price == strike)
+    cls = FutureOption if is_future else TastytradeOption
     if width:
-        if is_future:  # futures options
-            res = await FutureOption.get(
-                sesh,
-                [short_symbol, spread_strike.put],  # type: ignore
-            )
-        else:
-            res = await TastytradeOption.get(sesh, [short_symbol, spread_strike.put])  # type: ignore
+        res = list(
+            await gather(*[cls.get(sesh, s) for s in [short_symbol, spread_strike.put]])  # type: ignore
+        )
         res.sort(key=lambda x: x.strike_price, reverse=True)
         legs = [
             res[0].build_leg(
@@ -515,10 +509,7 @@ async def put(
             ),
         ]
     else:
-        if is_future:  # futures options
-            put = await FutureOption.get(sesh, short_symbol)
-        else:
-            put = await TastytradeOption.get(sesh, short_symbol)
+        put = await cls.get(sesh, short_symbol)
         legs = [
             put.build_leg(
                 Decimal(abs(quantity)),
@@ -794,10 +785,8 @@ async def strangle(
     tt_symbols = [put_strike.put, call_strike.call]
     if width:
         tt_symbols += [put_spread_strike.put, call_spread_strike.call]  # type: ignore
-    if is_future:  # futures options
-        options = await FutureOption.get(sesh, tt_symbols)
-    else:
-        options = await TastytradeOption.get(sesh, tt_symbols)
+    cls = FutureOption if is_future else TastytradeOption
+    options = list(await gather(*[cls.get(sesh, s) for s in tt_symbols]))
     options.sort(key=lambda o: o.strike_price)
     q = Decimal(quantity)
     if width:

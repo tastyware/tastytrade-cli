@@ -89,17 +89,13 @@ async def positions(
     options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.EQUITY_OPTION
     ]
-    options = (
-        await TastytradeOption.get(sesh, options_symbols) if options_symbols else []
-    )
+    options = await gather(*[TastytradeOption.get(sesh, s) for s in options_symbols])
     options_dict = {o.symbol: o for o in options}
     future_options_symbols = [
         p.symbol for p in positions if p.instrument_type == InstrumentType.FUTURE_OPTION
     ]
-    future_options = (
-        await FutureOption.get(sesh, future_options_symbols)
-        if future_options_symbols
-        else []
+    future_options = await gather(
+        *[FutureOption.get(sesh, s) for s in future_options_symbols]
     )
     future_options_dict = {fo.symbol: fo for fo in future_options}
     futures_symbols = [
