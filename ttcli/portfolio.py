@@ -284,7 +284,7 @@ async def positions(
             delta = 0
             bwd = 0
             ivr = None
-            pnl = (mark - pos.average_open_price * pos.quantity) * m
+            pnl = (mark - pos.average_open_price) * pos.quantity * m
             trade_price = pos.average_open_price
             indicators = ""
             pos.quantity = round(pos.quantity, 2)
