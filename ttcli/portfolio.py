@@ -219,7 +219,7 @@ async def positions(
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             indicators = get_indicators(today, metrics)
             trade_price = pos.average_open_price
-            pnl = (mark_price - trade_price) * m * pos.multiplier
+            pnl = (mark_price - trade_price) * m * pos.multiplier * pos.quantity
             day_change = mark_price - prev_close(o.symbol)
             pnl_day = day_change * pos.quantity * pos.multiplier * m
         elif pos.instrument_type == InstrumentType.FUTURE_OPTION:
@@ -241,7 +241,7 @@ async def positions(
             )
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
             trade_price = pos.average_open_price
-            pnl = (mark_price - trade_price) * m * pos.multiplier
+            pnl = (mark_price - trade_price) * m * pos.multiplier * pos.quantity
             day_change = mark_price - prev_close(o.symbol)
             pnl_day = day_change * pos.quantity * pos.multiplier * m
         elif pos.instrument_type == InstrumentType.EQUITY:
@@ -257,7 +257,7 @@ async def positions(
             indicators = get_indicators(today, metrics)
             bwd = beta * mark_price * delta / spy
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
-            pnl = mark - pos.average_open_price * pos.quantity * m
+            pnl = (mark - pos.average_open_price) * pos.quantity * m
             trade_price = pos.average_open_price
             day_change = mark_price - prev_close(pos.symbol)
             pnl_day = day_change * pos.quantity * m
@@ -284,7 +284,7 @@ async def positions(
             delta = 0
             bwd = 0
             ivr = None
-            pnl = mark - pos.average_open_price * pos.quantity * m
+            pnl = (mark - pos.average_open_price) * pos.quantity * m
             trade_price = pos.average_open_price
             indicators = ""
             pos.quantity = round(pos.quantity, 2)
