@@ -257,7 +257,7 @@ async def positions(
             indicators = get_indicators(today, metrics)
             bwd = beta * mark_price * delta / spy
             ivr = (metrics.tos_implied_volatility_index_rank or 0) * 100
-            pnl = (mark - pos.average_open_price * pos.quantity) * m
+            pnl = (mark - pos.average_open_price) * pos.quantity * m
             trade_price = pos.average_open_price
             day_change = mark_price - prev_close(pos.symbol)
             pnl_day = day_change * pos.quantity * m
