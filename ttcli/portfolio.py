@@ -596,14 +596,11 @@ async def margin():
     bp_variation = sesh.config.getint(
         "portfolio", "bp-target-percent-variation", fallback=10
     )
-    if data.mark - bp_percent > bp_variation:
-        warnings.append(
-            f"BP usage is relatively low given VIX level of {round(data.mark)}!"
-        )
-    elif bp_percent - data.mark > bp_variation:
-        warnings.append(
-            f"BP usage is relatively high given VIX level of {round(data.mark)}!"
-        )
+    vix = data.mark or data.last or Decimal(0)
+    if vix - bp_percent > bp_variation:
+        warnings.append(f"BP usage is relatively low given VIX level of {round(vix)}!")
+    elif bp_percent - vix > bp_variation:
+        warnings.append(f"BP usage is relatively high given VIX level of {round(vix)}!")
     for warning in warnings:
         print_warning(warning)
 

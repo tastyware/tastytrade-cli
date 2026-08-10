@@ -22,10 +22,9 @@ from tastytrade.instruments import (
 from tastytrade.market_data import get_market_data_by_type
 from tastytrade.order import (
     InstrumentType,
-    NewOrder,
+    LimitOrder,
     OrderAction,
     OrderTimeInForce,
-    OrderType,
 )
 from tastytrade.utils import TastytradeError, get_tasty_monthly
 from typer import Option
@@ -285,9 +284,8 @@ async def call(
             )
         ]
     m = 1 if quantity < 0 else -1
-    order = NewOrder(
+    order = LimitOrder(
         time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
-        order_type=OrderType.LIMIT,
         legs=legs,
         price=fmt(price * m),
     )
@@ -517,9 +515,8 @@ async def put(
             )
         ]
     m = 1 if quantity < 0 else -1
-    order = NewOrder(
+    order = LimitOrder(
         time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
-        order_type=OrderType.LIMIT,
         legs=legs,
         price=fmt(price * m),
     )
@@ -820,9 +817,8 @@ async def strangle(
             ),
         ]
     m = 1 if quantity < 0 else -1
-    order = NewOrder(
+    order = LimitOrder(
         time_in_force=OrderTimeInForce.GTC if gtc else OrderTimeInForce.DAY,
-        order_type=OrderType.LIMIT,
         legs=legs,
         price=price * m,
     )
@@ -1063,9 +1059,9 @@ async def chain(
             call_trade = trade_dict[strike.call_streamer_symbol]  # type: ignore
             put_trade = trade_dict[strike.put_streamer_symbol]  # type: ignore
             prepend.append(
-                f"{volfmt(call_trade.day_volume or 0)}" if call_trade else ""
+                f"{volfmt(call_trade.day_volume or 0)}" if call_trade else ""  # type: ignore
             )
-            row.append(f"{volfmt(put_trade.day_volume or 0)}" if put_trade else "")
+            row.append(f"{volfmt(put_trade.day_volume or 0)}" if put_trade else "")  # type: ignore
 
         prepend.reverse()
         table.add_row(*(prepend + row), end_section=(i == mid_index - 1))

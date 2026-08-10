@@ -60,7 +60,7 @@ async def live(
         future_options=list(instrument_dict[InstrumentType.FUTURE_OPTION]) or None,
         options=list(instrument_dict[InstrumentType.EQUITY_OPTION]) or None,
     )
-    marks = {d.symbol: d.mark for d in data}
+    marks = {d.symbol: d.mark or d.last or Decimal(0) for d in data}
     console = Console()
     table = Table(
         show_header=True,

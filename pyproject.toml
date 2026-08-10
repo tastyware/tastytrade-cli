@@ -5,6 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 path = "ttcli/__init__.py"
 
+[tool.hatch.build]
+artifacts = ["ttcli/data/project_template/.env"]
+
 [project]
 name = "tastytrade-cli"
 description = "An easy-to-use command line interface for Tastytrade!"
@@ -39,7 +42,7 @@ dependencies = [
     "anyio>=4.6.3",
     "py-gnuplot>=1.3",
     "rich>=13.8.1",
-    "tastytrade>=12.4.0",
+    "tastytrade>=13.2.3",
     "typer>=0.15.3",
     "yaspin>=3.1.0",
 ]
@@ -62,8 +65,12 @@ ignore = [
     "E731",  # lambda-assignment
 ]
 
+[tool.pyright]
+exclude = ["ttcli/data/"]
+
 [project.scripts]
 tt = "ttcli.app:cli"
+bootstrap = "ttcli.bootstrap:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ttcli"]
